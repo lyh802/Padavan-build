@@ -1,0 +1,54 @@
+From c02d382b31c453ebc22efeeb9f90b01f91141563 Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Wed, 7 Jun 2023 20:03:07 +0800
+Subject: [PATCH] Disable GMAC2
+
+---
+ .../drivers/net/ethernet/raeth/mtk_esw/esw_common.h           | 4 ++--
+ trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h   | 2 +-
+ trunk/user/shared/cflags.mk                                   | 1 +
+ 3 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_esw/esw_common.h b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_esw/esw_common.h
+index fa72a8f..30094b5 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_esw/esw_common.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_esw/esw_common.h
+@@ -2,8 +2,8 @@
+ #define __MTK_ESW_COMMON__
+ 
+ #define CONFIG_MT7530_GSW 				1
+-#define CONFIG_GE2_INTERNAL_GMAC_P5		1
+-#define CONFIG_RAETH_BOTH_GMAC			1
++//#define CONFIG_GE2_INTERNAL_GMAC_P5		1
++//#define CONFIG_RAETH_BOTH_GMAC			1
+ 
+ //#define CONFIG_RAETH_ESW_IGMP_SNOOP_OFF	1
+ #define CONFIG_RAETH_ESW_IGMP_SNOOP_HW	1
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h
+index 7bdce0f..7d695df 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h
+@@ -51,7 +51,7 @@
+ /*#define CONFIG_RAETH_QDMATX_QDMARX*/
+ /*#define CONFIG_HW_SFQ*/
+ #define CONFIG_RAETH_HW_IOCOHERENT
+-#define	CONFIG_RAETH_GMAC2
++/*#define	CONFIG_RAETH_GMAC2*/
+ /*#define CONFIG_RAETH_RSS_4RING*/
+ /*#define CONFIG_RAETH_RSS_2RING*/
+ /* definitions */
+diff --git a/trunk/user/shared/cflags.mk b/trunk/user/shared/cflags.mk
+index 01b452c..55742a2 100644
+--- a/trunk/user/shared/cflags.mk
++++ b/trunk/user/shared/cflags.mk
+@@ -6,6 +6,7 @@
+ CFLAGS += $(if $(CONFIG_SMP),-DUSE_SMP,)
+ CFLAGS += $(if $(CONFIG_IPV6),-DUSE_IPV6,)
+ CFLAGS += $(if $(CONFIG_XFRM),-DUSE_XFRM,)
++CFLAGS += $(if $(CONFIG_RAETH_BOTH_GMAC),,-DUSE_SINGLE_MAC)
+ CFLAGS += $(if $(CONFIG_RTL8367_MCM_WAN_PORT),-DUSE_GMAC2_TO_GSW,)
+ CFLAGS += $(if $(CONFIG_GE2_INTERNAL_GPHY_P0)$(CONFIG_GE2_INTERNAL_GPHY_P4)$(CONFIG_GE2_RGMII_AN),-DUSE_GMAC2_TO_GPHY,)
+ CFLAGS += $(if $(CONFIG_RT2860V2_AP),-DUSE_RT2860V2_AP,)
+-- 
+2.32.0.windows.2
+

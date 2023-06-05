@@ -1,0 +1,684 @@
+From b3831ca08f9b630048c5eca6293a82a56f04c00e Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Sun, 11 Jun 2023 02:44:27 +0800
+Subject: [PATCH] Fix hw_nat
+
+---
+ .../drivers/net/ethernet/raeth/raeth_config.h |   7 +-
+ .../drivers/net/ethernet/raeth/raether_qdma.c |   6 +-
+ trunk/linux-4.4.x/net/nat/hw_nat/fast_path.c  |   2 +-
+ .../linux-4.4.x/net/nat/hw_nat/hwnat_config.h |   2 +-
+ trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.c     |  45 ++--
+ trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h     | 202 +++++++-----------
+ 6 files changed, 114 insertions(+), 150 deletions(-)
+
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h
+index 5f1ca921..52503301 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raeth_config.h
+@@ -19,7 +19,8 @@
+ #define DELAY_INT
+ 
+ #define CONFIG_RAETH_RW_PDMAPTR_FROM_VAR
+-/*#define CONFIG_QDMA_QOS_WEB*/
++#define CONFIG_QDMA_SUPPORT_QOS
++/*#define CONFIG_QDMA_QOS_WEB*/
+ #define CONFIG_QDMA_QOS_MARK
+ 
+ #if !defined(CONFIG_SOC_MT7621)
+@@ -100,7 +101,7 @@
+ #else
+ #define FE_IRQ_SEPARATE	(0)
+ #endif
+-#define FE_GE2_SUPPORT	BIT(9)
++#define FE_GE2_SUPPORT	(0)
+ #ifdef	CONFIG_RAETH_ETHTOOL
+ #define FE_ETHTOOL	BIT(10)
+ #else
+@@ -209,7 +210,7 @@
+ #ifdef	CONFIG_QDMA_SUPPORT_QOS
+ #define FE_QDMA_FQOS	BIT(29)
+ #else
+-#define FE_QDMA_FQOS	BIT(29)
++#define FE_QDMA_FQOS	(0)
+ #endif
+ 
+ #ifdef	CONFIG_QDMA_QOS_WEB
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_qdma.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_qdma.c
+index c802b4c1..cd6d361e 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_qdma.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_qdma.c
+@@ -647,7 +647,8 @@ int rt2880_qdma_eth_send(struct END_DEVICE *ei_local, struct net_device *dev,
+ 
+ 	if ((ei_local->features & QDMA_QOS_MARK) && (skb->mark != 0)) {
+ 		if (skb->mark < 64) {
+-			qidx = skb->mark;
++			qidx = skb->mark;
++			//qidx = M2Q_table[skb->mark];
+ 			cpu_ptr->txd_info4.QID = ((qidx & 0x30) >> 4);
+ 			cpu_ptr->txd_info3.QID = (qidx & 0x0f);
+ 		} else {
+@@ -808,7 +809,8 @@ int rt2880_qdma_eth_send_tso(struct END_DEVICE *ei_local,
+ 	/* cpu_ptr->txd_info3.QID = ring_no; */
+ 	if ((ei_local->features & QDMA_QOS_MARK) && (skb->mark != 0)) {
+ 		if (skb->mark < 64) {
+-			qidx = skb->mark;
++			qidx = skb->mark;
++			//qidx = M2Q_table[skb->mark];
+ 			cpu_ptr->txd_info4.QID = ((qidx & 0x30) >> 4);
+ 			cpu_ptr->txd_info3.QID = (qidx & 0x0f);
+ 		} else {
+diff --git a/trunk/linux-4.4.x/net/nat/hw_nat/fast_path.c b/trunk/linux-4.4.x/net/nat/hw_nat/fast_path.c
+index c6878644..b10c6cef 100644
+--- a/trunk/linux-4.4.x/net/nat/hw_nat/fast_path.c
++++ b/trunk/linux-4.4.x/net/nat/hw_nat/fast_path.c
+@@ -17,7 +17,7 @@
+ #include "ra_nat.h"
+ #include "util.h"
+ 
+-#if 0
++#if defined(CONFIG_SUPPORT_OPENWRT)
+ #if defined(CONFIG_GE_RGMII_INTERNAL_P4_AN) || defined(CONFIG_GE_RGMII_INTERNAL_P0_AN)
+ char *ifname="eth1";
+ #else
+diff --git a/trunk/linux-4.4.x/net/nat/hw_nat/hwnat_config.h b/trunk/linux-4.4.x/net/nat/hw_nat/hwnat_config.h
+index fccb1f9e..5f72f3e0 100644
+--- a/trunk/linux-4.4.x/net/nat/hw_nat/hwnat_config.h
++++ b/trunk/linux-4.4.x/net/nat/hw_nat/hwnat_config.h
+@@ -169,7 +169,7 @@
+ #define PACKET_SAMPLING		(0)
+ #endif
+ 
+-#if 0
++#ifdef CONFIG_SUPPORT_OPENWRT
+ #define HNAT_OPENWRT	BIT(13)
+ #else
+ #define HNAT_OPENWRT		(0)
+diff --git a/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.c b/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.c
+index 3bdc3530..f2ab5ce5 100644
+--- a/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.c
++++ b/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.c
+@@ -57,7 +57,7 @@ MODULE_PARM_DESC(wan_vid, "VLAN ID for WAN traffic");
+ struct timer_list hwnat_clear_entry_timer;
+ static void hwnat_clear_entry(unsigned long data)
+ {
+-	//printk("HW_NAT work normally\n");
++	printk("HW_NAT work normally\n");
+ 	reg_modify_bits(PPE_FOE_CFG, FWD_CPU_BUILD_ENTRY, 4, 2);
+ 	//del_timer_sync(&hwnat_clear_entry_timer);
+ 
+@@ -293,7 +293,7 @@ uint16_t remove_vlan_tag(struct sk_buff *skb)
+ 	/* something wrong */
+ 	if ((veth->h_vlan_proto != htons(ETH_P_8021Q)) && (veth->h_vlan_proto != 0x5678)) {
+ 		//if (pr_debug_ratelimited())
+-		//	pr_info("HNAT: Reentry packet is untagged frame?\n");
++			pr_info("HNAT: Reentry packet is untagged frame?\n");
+ 		return 65535;
+ 	}
+ 	/*we just want to get vid*/
+@@ -574,7 +574,7 @@ int get_bridge_info(void)
+ {
+ 	struct net_device *br0_dev; 
+ 	struct in_device *br0_in_dev;
+-#if 0
++#if defined(CONFIG_SUPPORT_OPENWRT)
+ 	br0_dev = dev_get_by_name(&init_net,"br-lan");
+ #else
+ 	br0_dev = dev_get_by_name(&init_net,"br0");
+@@ -599,8 +599,8 @@ int get_bridge_info(void)
+ 	else
+ 		pr_info("br0_in_dev = NULL\n");
+ 	
+-	pr_debug("br0Ip = %x\n", br0Ip);
+-	pr_debug("brNetmask = %x\n", brNetmask);
++	pr_info("br0Ip = %x\n", br0Ip);
++	pr_info("brNetmask = %x\n", brNetmask);
+ 	getBrLan = 1;
+ 	
+ 	return 0;
+@@ -2109,7 +2109,8 @@ int32_t ppe_setforce_port_info(struct sk_buff *skb, struct foe_entry *entry, int
+ 	if (IS_IPV4_GRP(entry)) {
+ 		if (skb->mark > 63)
+ 			skb->mark = 0;
+-		qidx = skb->mark;
++		qidx = skb->mark;
++		//qidx = M2Q_table[skb->mark];
+ #if defined(CONFIG_ARCH_MT7622) 
+ 		entry->ipv4_hnapt.iblk2.qid1 = ((qidx & 0x30) >> 4);
+ #endif
+@@ -2134,12 +2135,13 @@ int32_t ppe_setforce_port_info(struct sk_buff *skb, struct foe_entry *entry, int
+ 	else if (IS_IPV6_GRP(entry)) {
+ 		if (skb->mark > 63)
+ 			skb->mark = 0;
+-		qidx = skb->mark;
+-		entry->ipv6_3t_route.iblk2.qid = (qidx & 0x0f);
+-#ifdef CONFIG_PSEUDO_SUPPORT
++		qidx = skb->mark;
++		//qidx = M2Q_table[skb->mark];
+ #if defined(CONFIG_ARCH_MT7622) 
+ 		entry->ipv6_3t_route.iblk2.qid1 = ((qidx & 0x30) >> 4);
+ #endif
++		entry->ipv6_3t_route.iblk2.qid = (qidx & 0x0f);
++#ifdef CONFIG_PSEUDO_SUPPORT
+ 		if (lan_wan_separate == 1 && gmac_no == 2) {
+ 			entry->ipv6_3t_route.iblk2.qid += 8;
+ #if defined(CONFIG_HW_SFQ)
+@@ -2655,7 +2657,7 @@ defined(CONFIG_MT7610_AP_APCLI) || defined(CONFIG_APCLI_SUPPORT)
+ 			offset = RTMP_GET_PACKET_IF(skb) + DP_RA0;
+ #endif				/* CONFIG_RT2860V2_AP_WDS // */
+ 	}
+-#if 0
++#if defined(CONFIG_SUPPORT_OPENWRT)
+ 	else if (strncmp(skb->dev->name, "eth0", 4) == 0)
+ 		offset = DP_GMAC;
+ #ifdef CONFIG_RAETH_GMAC2
+@@ -2800,7 +2802,7 @@ void ppe_dev_reg_handler(struct net_device *dev)
+ 
+ 	for (i = 0; i < MAX_IF_NUM; i++) {
+ 		if (dst_port[i] == dev) {
+-			pr_debug("%s : %s dst_port table has beed registered(%d)\n", __func__, dev->name, i);
++			pr_info("%s : %s dst_port table has beed registered(%d)\n", __func__, dev->name, i);
+ 			return;
+ 		}
+ 		if (dst_port[i] == NULL) {
+@@ -3023,8 +3025,7 @@ int32_t ppe_tx_handler(struct sk_buff *skb, int gmac_no)
+ 				pr_info("ppe_set_entry_bind\n");
+ 			/* Set Pseudo Interface info in Foe entry */
+ 			/* Enter binding state */
+-			memset(FOE_INFO_START_ADDR(skb), 0, FOE_INFO_LEN);
+-			/*ppe_set_entry_bind(skb, entry);*/
++			ppe_set_entry_bind(skb, entry);
+ 			return 1;
+ 		}
+ 	}
+@@ -3104,12 +3105,14 @@ int32_t ppe_tx_handler(struct sk_buff *skb, int gmac_no)
+ 		if (ppe_parse_result.is_mcast) {
+ 			foe_mcast_entry_qid(ppe_parse_result.vlan1,
+ 					    ppe_parse_result.dmac,
+-					    skb->mark);
++					    skb->mark);
++					    //M2Q_table[skb->mark]);
+ #ifdef CONFIG_PSEUDO_SUPPORT
+ 			if (lan_wan_separate == 1 && gmac_no == 2) {
+ 				foe_mcast_entry_qid(ppe_parse_result.vlan1,
+ 						    ppe_parse_result.dmac,
+-						    skb->mark + 8);
++						    skb->mark + 8);
++						    //M2Q_table[skb->mark] + 8);
+ #if defined(CONFIG_HW_SFQ)
+ 				if (web_sfq_enable == 1 && (skb->mark == 2))
+ 					foe_mcast_entry_qid(ppe_parse_result.vlan1,
+@@ -3660,7 +3663,7 @@ defined(CONFIG_MT7610_AP_MESH)
+ #if defined(CONFIG_RA_HW_NAT_WIFI_NEW_ARCH)
+ 		struct net_device *dev;
+ 		int i;
+-#if 0
++#if defined(CONFIG_SUPPORT_OPENWRT)
+ 		dev = ra_dev_get_by_name("eth0");
+ 		ppe_dev_reg_handler(dev);
+ 		for (i = 0; i < MAX_IF_NUM; i++) {
+@@ -3705,7 +3708,7 @@ defined(CONFIG_MT7610_AP_MESH)
+ #endif
+ 
+ #else
+-#if 0
++#if defined(CONFIG_SUPPORT_OPENWRT)
+ 		dst_port[DP_GMAC] = ra_dev_get_by_name("eth0");
+ #ifdef CONFIG_RAETH_GMAC2
+ 		dst_port[DP_GMAC2] = ra_dev_get_by_name("eth1");
+@@ -3986,7 +3989,7 @@ static void set_acl_fwd(uint32_t ebl)
+ 	unsigned int i, value;
+ 
+ 	if (ebl) {
+-#if 0
++#if defined(CONFIG_SUPPORT_OPENWRT)
+ #if defined(CONFIG_RAETH_SPECIAL_TAG)
+ #if defined(CONFIG_WAN_AT_P4)
+ 		wan_int = ra_dev_get_by_name("eth0.5");
+@@ -4313,14 +4316,14 @@ void foe_clear_entry(struct neighbour *neigh)
+ 				    (entry->ipv4_hnapt.dmac_hi[0] != mac3) ||
+ 				    (entry->ipv4_hnapt.dmac_lo[1] != mac4) ||
+ 				    (entry->ipv4_hnapt.dmac_lo[0] != mac5)) {
+-				    	//printk("%s: state=%d\n",__func__,neigh->nud_state);
++				    	printk("%s: state=%d\n",__func__,neigh->nud_state);
+ 				    	reg_modify_bits(PPE_FOE_CFG, ONLY_FWD_CPU, 4, 2);
+ 				    	
+ 				  	entry->ipv4_hnapt.udib1.state = INVALID;
+ 					entry->ipv4_hnapt.udib1.time_stamp = reg_read(FOE_TS) & 0xFF;
+ 					ppe_set_cache_ebl();
+ 					mod_timer(&hwnat_clear_entry_timer, jiffies + 3 * HZ);
+-				/*
++				
+ 					printk("delete old entry: dip =%x\n", ntohl(dip));
+ 							
+ 				    	printk("old mac= %x:%x:%x:%x:%x:%x, dip=%x\n", 
+@@ -4332,7 +4335,7 @@ void foe_clear_entry(struct neighbour *neigh)
+ 				    		entry->ipv4_hnapt.dmac_lo[0],
+ 				    		ntohl(dip));
+ 				    	printk("new mac= %x:%x:%x:%x:%x:%x, dip=%x\n", mac0, mac1, mac2, mac3, mac4, mac5, ntohl(dip));
+-				*/
++
+ 				}
+ 			}
+ 		}
+diff --git a/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h b/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h
+index 687de201..0a224214 100644
+--- a/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h
++++ b/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h
+@@ -1,54 +1,17 @@
+-/******************************************************************************
+- *
+- * This file is provided under a dual license.  When you use or
+- * distribute this software, you may choose to be licensed under
+- * version 2 of the GNU General Public License ("GPLv2 License")
+- * or BSD License.
+- *
+- * GPLv2 License
+- *
+- * Copyright(C) 2017 MediaTek Inc.
++/* Copyright  2016 MediaTek Inc.
++ * Author: Nelson Chang <nelson.chang@mediatek.com>
++ * Author: Carlos Huang <carlos.huang@mediatek.com>
++ * Author: Harry Huang <harry.huang@mediatek.com>
+  *
+  * This program is free software; you can redistribute it and/or modify
+- * it under the terms of version 2 of the GNU General Public License as
++ * it under the terms of the GNU General Public License version 2 as
+  * published by the Free Software Foundation.
+  *
+- * This program is distributed in the hope that it will be useful, but
+- * WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+- * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+- *
+- * BSD LICENSE
+- *
+- * Copyright(C) 2017 MediaTek Inc. All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- *
+- *  * Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- *  * Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in
+- *    the documentation and/or other materials provided with the
+- *    distribution.
+- *  * Neither the name of the copyright holder nor the names of its
+- *    contributors may be used to endorse or promote products derived
+- *    from this software without specific prior written permission.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- *
+- *****************************************************************************/
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
+ #ifndef _RA_NAT_WANTED
+ #define _RA_NAT_WANTED
+ 
+@@ -59,13 +22,13 @@
+ #define hwnat_vlan_tag_get(__skb)         ((__skb)->vlan_tci & ~VLAN_TAG_PRESENT)
+ 
+ #if defined(CONFIG_RA_NAT_HW)
+-extern void hwnat_magic_tag_set_zero(struct sk_buff *skb);
+-extern void hwnat_check_magic_tag(struct sk_buff *skb);
+-extern void hwnat_set_headroom_zero(struct sk_buff *skb);
+-extern void hwnat_set_tailroom_zero(struct sk_buff *skb);
+-extern void hwnat_copy_headroom(u8 *data, struct sk_buff *skb);
+-extern void hwnat_copy_tailroom(u8 *data, int size, struct sk_buff *skb);
+-extern void hwnat_setup_dma_ops(struct device *dev, bool coherent);
++void hwnat_magic_tag_set_zero(struct sk_buff *skb);
++void hwnat_check_magic_tag(struct sk_buff *skb);
++void hwnat_set_headroom_zero(struct sk_buff *skb);
++void hwnat_set_tailroom_zero(struct sk_buff *skb);
++void hwnat_copy_headroom(u8 *data, struct sk_buff *skb);
++void hwnat_copy_tailroom(u8 *data, int size, struct sk_buff *skb);
++
+ #else
+ 
+ static inline void hwnat_magic_tag_set_zero(struct sk_buff *skb)
+@@ -231,18 +194,20 @@ struct pdma_rx_desc_info4 {
+ 	u16 MAGIC_TAG_PROTECT;
+ 	uint32_t foe_entry_num:14;
+ 	uint32_t CRSN:5;
+-	uint32_t SPORT:3;
+ #if defined(CONFIG_MACH_LEOPARD)
++	uint32_t SPORT:3;
+ 	uint32_t foe_entry_num_32:1;
+ #else
+-	uint32_t rsv:1;
++	uint32_t SPORT:4;
+ #endif
+ 	uint32_t ALG:1;
+ 	uint16_t IF:8;
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ 	u8 WDMAID;
+ 	uint16_t RXID:2;
+ 	uint16_t WCID:8;
+ 	uint16_t BSSID:6;
++#endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ 	u16 SOURCE;
+ 	u16 DEST;
+@@ -252,20 +217,21 @@ struct pdma_rx_desc_info4 {
+ struct head_rx_descinfo4 {
+ 	uint32_t foe_entry_num:14;
+ 	uint32_t CRSN:5;
+-	uint32_t SPORT:3;
+ #if defined(CONFIG_MACH_LEOPARD)
++	uint32_t SPORT:3;
+ 	uint32_t foe_entry_num_32:1;
+ #else
+-	uint32_t rsv:1;
++	uint32_t SPORT:4;
+ #endif
+ 	uint32_t ALG:1;
+ 	uint32_t IF:8;
+ 	u16 MAGIC_TAG_PROTECT;
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ 	u8 WDMAID;
+ 	uint16_t RXID:2;
+ 	uint16_t WCID:8;
+ 	uint16_t BSSID:6;
+-
++#endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ 	u16 SOURCE;
+ 	u16 DEST;
+@@ -276,19 +242,21 @@ struct cb_rx_desc_info4 {
+ 	u16 MAGIC_TAG_PROTECT0;
+ 	uint32_t foe_entry_num:14;
+ 	uint32_t CRSN:5;
+-	uint32_t SPORT:3;
+ #if defined(CONFIG_MACH_LEOPARD)
++	uint32_t SPORT:3;
+ 	uint32_t foe_entry_num_32:1;
+ #else
+-	uint32_t rsv:1;
++	uint32_t SPORT:4;
+ #endif
+ 	uint32_t ALG:1;
+ 	uint32_t IF:8;
+ 	u16 MAGIC_TAG_PROTECT1;
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ 	u8 WDMAID;
+ 	uint16_t RXID:2;
+ 	uint16_t WCID:8;
+ 	uint16_t BSSID:6;
++#endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ 	u16 SOURCE;
+ 	u16 DEST;
+@@ -336,18 +304,14 @@ struct cb_rx_desc_info4 {
+ 
+ #define FOE_TAG_PROTECT(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->MAGIC_TAG_PROTECT)
+-
++#if defined(CONFIG_MACH_LEOPARD)
+ #define FOE_ENTRY_NUM_LSB(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num)
+-
+-#if defined(CONFIG_MACH_LEOPARD)
+ #define FOE_ENTRY_NUM_MSB(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num_32)
+ #define FOE_ENTRY_NUM(skb)  \
+ 	(((FOE_ENTRY_NUM_MSB(skb) & 0x1) << 14) | FOE_ENTRY_NUM_LSB(skb))
+ #else
+-#define FOE_ENTRY_NUM_MSB(skb)  \
+-	(((struct head_rx_descinfo4 *)((skb)->head))->rsv)
+ #define FOE_ENTRY_NUM(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num)
+ #endif
+@@ -359,13 +323,13 @@ struct cb_rx_desc_info4 {
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->SPORT)
+ #define FOE_MAGIC_TAG(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->IF)
+-
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->RXID)
+ #define FOE_WC_ID(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->BSSID)
+-
++#endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ #define FOE_SOURCE(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->SOURCE)
+ #define FOE_DEST(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->DEST)
+@@ -379,20 +343,17 @@ struct cb_rx_desc_info4 {
+ 
+ #define FOE_TAG_PROTECT_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->MAGIC_TAG_PROTECT)
++#if defined(CONFIG_MACH_LEOPARD)
+ #define FOE_ENTRY_NUM_LSB_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num)
+-#if defined(CONFIG_MACH_LEOPARD)
+ #define FOE_ENTRY_NUM_MSB_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num_32)
+ #define FOE_ENTRY_NUM_HEAD(skb)  \
+ 	(((FOE_ENTRY_NUM_MSB_HEAD(skb) & 0x1) << 14) | FOE_ENTRY_NUM_LSB_HEAD(skb))
+ #else
+-#define FOE_ENTRY_NUM_MSB_HEAD(skb)  \
+-	(((struct head_rx_descinfo4 *)((skb)->head))->rsv)
+ #define FOE_ENTRY_NUM_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num)
+ #endif
+-
+ #define FOE_ALG_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->ALG)
+ #define FOE_AI_HEAD(skb)  \
+@@ -402,6 +363,7 @@ struct cb_rx_desc_info4 {
+ #define FOE_MAGIC_TAG_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->IF)
+ 
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID_HEAD(skb)  \
+@@ -410,6 +372,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->BSSID)
++#endif
+ 
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ #define FOE_SOURCE_HEAD(skb)  \
+@@ -418,6 +381,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->DEST)
+ #endif
+ 
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID_HEAD(skb)  \
+@@ -426,6 +390,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->BSSID)
++#endif
+ 
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ #define FOE_SOURCE_HEAD(skb)  \
+@@ -442,21 +407,17 @@ struct cb_rx_desc_info4 {
+ 
+ #define FOE_TAG_PROTECT_TAIL(skb)  \
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->MAGIC_TAG_PROTECT)
++#if defined(CONFIG_MACH_LEOPARD)
+ #define FOE_ENTRY_NUM_LSB_TAIL(skb)  \
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->foe_entry_num)
+-
+-#if defined(CONFIG_MACH_LEOPARD)
+ #define FOE_ENTRY_NUM_MSB_TAIL(skb)  \
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->foe_entry_num_32)
+ #define FOE_ENTRY_NUM_TAIL(skb)  \
+ 	(((FOE_ENTRY_NUM_MSB_TAIL(skb) & 0x1) << 14) | FOE_ENTRY_NUM_LSB_TAIL(skb))
+ #else
+-#define FOE_ENTRY_NUM_MSB_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->rsv)
+ #define FOE_ENTRY_NUM_TAIL(skb)  \
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->foe_entry_num)
+ #endif
+-
+ #define FOE_ALG_TAIL(skb)  \
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->ALG)
+ #define FOE_AI_TAIL(skb)  \
+@@ -473,14 +434,16 @@ struct cb_rx_desc_info4 {
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->DEST)
+ #endif
+ 
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->WDMAID)
++	(((struct pdma_rx_desc_info4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->RXID)
++	(((struct pdma_rx_desc_info4 *)((skb)->head))->RXID)
+ #define FOE_WC_ID_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->WCID)
++	(((struct pdma_rx_desc_info4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->BSSID)
++	(((struct pdma_rx_desc_info4 *)((skb)->head))->BSSID)
++#endif
+ 
+ /* change the position of skb_CB if necessary */
+ #define CB_OFFSET		    40
+@@ -506,6 +469,8 @@ struct cb_rx_desc_info4 {
+ #define FOE_DEST_CB(skb)	(((struct cb_rx_desc_info4 *)((skb)->cb + CB_OFFSET))->DEST)
+ #endif
+ 
++
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_CB(skb)  \
+ 	(((struct cb_rx_desc_info4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID_CB(skb)  \
+@@ -514,6 +479,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct cb_rx_desc_info4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID_CB(skb)  \
+ 	(((struct cb_rx_desc_info4 *)((skb)->head))->BSSID)
++#endif
+ 
+ #define IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb)  \
+ 	(FOE_TAG_PROTECT_HEAD(skb) == TAG_PROTECT)
+@@ -581,60 +547,53 @@ static inline void hwnat_clear_l2tp_fast_path(u32 l2tp_fast_path)
+ #endif
+ }
+ 
+-/* #define CONFIG_HW_NAT_IPI */
+-#if defined(CONFIG_HW_NAT_IPI)
+-extern int debug_level;
+-int get_rps_cpu(struct net_device *dev, struct sk_buff *skb,
+-		struct rps_dev_flow **rflowp);
+-uint32_t ppe_extif_rx_handler(struct sk_buff *skb);
+-int hitbind_force_to_cpu_handler(struct sk_buff *skb, struct foe_entry *entry);
+-extern unsigned int ipidbg[num_possible_cpus()][10];
+-extern unsigned int ipidbg2[num_possible_cpus()][10];
+-/* #define HNAT_IPI_RXQUEUE	1 */
++//#define CONFIG_HW_NAT_IPI
++#if defined (CONFIG_HW_NAT_IPI)
++//#define HNAT_IPI_RXQUEUE	1
+ #define HNAT_IPI_DQ		1
+ #define HNAT_IPI_HASH_NORMAL	0
+ #define HNAT_IPI_HASH_VTAG		1
+ #define HNAT_IPI_HASH_FROM_EXTIF	2
+ #define HNAT_IPI_HASH_FROM_GMAC		4
+ 
+-struct hnat_ipi_s {
+-#if defined(HNAT_IPI_DQ)
+-	struct sk_buff_head     skb_input_queue;
+-	struct sk_buff_head     skb_process_queue;
+-#elif defined(HNAT_IPI_RXQUEUE)
+-	atomic_t rx_queue_num;
+-	unsigned int rx_queue_ridx;
+-	unsigned int rx_queue_widx;
+-	struct sk_buff **rx_queue;
++typedef struct {
++#if defined (HNAT_IPI_DQ)
++	struct sk_buff_head     skbInputQueue;
++	struct sk_buff_head     skbProcessQueue;
++#elif defined (HNAT_IPI_RXQUEUE)
++	atomic_t RxQueueNum;
++	unsigned int RxQueueRIdx;
++	unsigned int RxQueueWIdx;
++	struct sk_buff** RxQueue;
+ #else
+-	/* unsigned int dummy0[0]; */
+-	struct sk_buff_head     skb_ipi_queue;
+-	/* unsigned int dummy1[8]; */
++	//unsigned int dummy0[0];
++	struct sk_buff_head     skbIpiQueue;
++	//unsigned int dummy1[8];
+ #endif
+ 	unsigned long time_rec, recv_time;
+ 	unsigned int ipi_accum;
+-	/*hwnat ipi use*/
+-	spinlock_t      ipilock;
++	spinlock_t      ipilock;	
+ 	struct tasklet_struct smp_func_call_tsk;
+-} ____cacheline_aligned_in_smp;
++} ____cacheline_aligned_in_smp hnat_ipi_s;
+ 
+-struct hnat_ipi_stat {
+-	unsigned long drop_pkt_num_from_extif;
+-	unsigned long drop_pkt_num_from_ppehit;
++
++typedef struct {
++	unsigned long dropPktNum_from_extif;
++	unsigned long dropPktNum_from_ppehit;
+ 	unsigned int smp_call_cnt_from_extif;
+ 	unsigned int smp_call_cnt_from_ppehit;
+ 	atomic_t cpu_status;
+-	/* atomic_t cpu_status_from_extif; */
+-	/* atomic_t cpu_status_from_ppehit; */
+-
+-	/* atomic_t hook_status_from_extif; */
+-	/* atomic_t hook_status_from_ppehit; */
+-} ____cacheline_aligned_in_smp;
++	//atomic_t cpu_status_from_extif;
++	//atomic_t cpu_status_from_ppehit;
++	
++	//atomic_t hook_status_from_extif;
++	//atomic_t hook_status_from_ppehit;
++} ____cacheline_aligned_in_smp hnat_ipi_stat;
+ 
+-#define cpu_status_from_extif	cpu_status
+-#define cpu_status_from_ppehit	cpu_status
++#define cpu_status_from_extif 	cpu_status
++#define cpu_status_from_ppehit 	cpu_status
+ 
+-struct hnat_ipi_cfg {
++typedef struct {
+ 	unsigned int enable_from_extif;
+ 	unsigned int enable_from_ppehit;
+ 	unsigned int queue_thresh_from_extif;
+@@ -643,10 +602,9 @@ struct hnat_ipi_cfg {
+ 	unsigned int drop_pkt_from_ppehit;
+ 	unsigned int ipi_cnt_mod_from_extif;
+ 	unsigned int ipi_cnt_mod_from_ppehit;
+-} ____cacheline_aligned_in_smp;
+-
+-int hnat_ipi_init(void);
+-int hnat_ipi_de_init(void);
++} ____cacheline_aligned_in_smp hnat_ipi_cfg;
++int HnatIPIInit(void);
++int HnatIPIDeInit(void);
+ #endif
+ 
+ #endif
+-- 
+2.32.0.windows.2
+

@@ -1,0 +1,257 @@
+From 3604f58002c8df0757b54ab46a62faa875e397b1 Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Tue, 6 Jun 2023 00:35:14 +0800
+Subject: [PATCH] Support MAC2600R
+
+---
+ .../SingleSKU_mt7615e-sku-bf.dat              |  0
+ .../SingleSKU_mt7615e-sku.dat                 |  0
+ .../boards/{DIR-878 => MAC2600R}/board.h      | 16 ++++-----
+ .../boards/{DIR-878 => MAC2600R}/board.mk     |  4 +--
+ .../{DIR-878 => MAC2600R}/kernel-4.4.x.config | 18 +++++-----
+ .../{DIR-878 => MAC2600R}/l1profile.dat       |  0
+ .../{DIR-878.config => MAC2600R.config}       | 24 ++++++-------
+ .../dts/ralink/{dir-878.dts => mac2600r.dts}  | 36 +++----------------
+ 8 files changed, 35 insertions(+), 63 deletions(-)
+ rename trunk/configs/boards/{DIR-878 => MAC2600R}/SingleSKU_mt7615e-sku-bf.dat (100%)
+ rename trunk/configs/boards/{DIR-878 => MAC2600R}/SingleSKU_mt7615e-sku.dat (100%)
+ rename trunk/configs/boards/{DIR-878 => MAC2600R}/board.h (52%)
+ rename trunk/configs/boards/{DIR-878 => MAC2600R}/board.mk (80%)
+ rename trunk/configs/boards/{DIR-878 => MAC2600R}/kernel-4.4.x.config (99%)
+ rename trunk/configs/boards/{DIR-878 => MAC2600R}/l1profile.dat (100%)
+ rename trunk/configs/templates/{DIR-878.config => MAC2600R.config} (93%)
+ rename trunk/linux-4.4.x/arch/mips/boot/dts/ralink/{dir-878.dts => mac2600r.dts} (51%)
+
+diff --git a/trunk/configs/boards/DIR-878/SingleSKU_mt7615e-sku-bf.dat b/trunk/configs/boards/MAC2600R/SingleSKU_mt7615e-sku-bf.dat
+similarity index 100%
+rename from trunk/configs/boards/DIR-878/SingleSKU_mt7615e-sku-bf.dat
+rename to trunk/configs/boards/MAC2600R/SingleSKU_mt7615e-sku-bf.dat
+diff --git a/trunk/configs/boards/DIR-878/SingleSKU_mt7615e-sku.dat b/trunk/configs/boards/MAC2600R/SingleSKU_mt7615e-sku.dat
+similarity index 100%
+rename from trunk/configs/boards/DIR-878/SingleSKU_mt7615e-sku.dat
+rename to trunk/configs/boards/MAC2600R/SingleSKU_mt7615e-sku.dat
+diff --git a/trunk/configs/boards/DIR-878/board.h b/trunk/configs/boards/MAC2600R/board.h
+similarity index 52%
+rename from trunk/configs/boards/DIR-878/board.h
+rename to trunk/configs/boards/MAC2600R/board.h
+index f6fd01f..57f35be 100644
+--- a/trunk/configs/boards/DIR-878/board.h
++++ b/trunk/configs/boards/MAC2600R/board.h
+@@ -1,11 +1,11 @@
+-/* DIR-878 */
++/* MAC2600R */
+ 
+-#define BOARD_PID			"DIR-878"
+-#define BOARD_NAME			"DIR-878"
+-#define BOARD_DESC			"DIR-878 Wireless Router"
+-#define BOARD_VENDOR_NAME	"DLINK"
+-#define BOARD_VENDOR_URL	"http://www.dlink.com.cn/"
+-#define BOARD_MODEL_URL		"http://www.dlink.com.cn/"
++#define BOARD_PID			"MAC2600R"
++#define BOARD_NAME			"MAC2600R"
++#define BOARD_DESC			"MAC2600R Wireless Router"
++#define BOARD_VENDOR_NAME	"MERCURY"
++#define BOARD_VENDOR_URL	"http://www.mercurycom.com.cn/"
++#define BOARD_MODEL_URL		"http://www.mercurycom.com.cn/"
+ #define BOARD_BOOT_TIME		30
+ #define BOARD_FLASH_TIME	120
+ 
+@@ -14,7 +14,7 @@
+ #define BOARD_NUM_ANT_5G_RX		4
+ #define BOARD_NUM_ANT_2G_TX		4
+ #define BOARD_NUM_ANT_2G_RX		4
+-#define BOARD_NUM_ETH_LEDS		0
++#define BOARD_NUM_ETH_LEDS		1
+ #define BOARD_HAS_EPHY_L1000	1
+ #define BOARD_HAS_EPHY_W1000	1
+ #define BOARD_NUM_UPHY_USB3		0
+diff --git a/trunk/configs/boards/DIR-878/board.mk b/trunk/configs/boards/MAC2600R/board.mk
+similarity index 80%
+rename from trunk/configs/boards/DIR-878/board.mk
+rename to trunk/configs/boards/MAC2600R/board.mk
+index 76f0eb4..bdf86dc 100644
+--- a/trunk/configs/boards/DIR-878/board.mk
++++ b/trunk/configs/boards/MAC2600R/board.mk
+@@ -1,9 +1,9 @@
+ ##################################################################
+ # Board PID # Board Name       # PRODUCT # Note
+ ##################################################################
+-# DIR-878   # DIR-878          # MT7621  #
++# MAC2600R   # MAC2600R          # MT7621  #
+ ##################################################################
+ 
+-CFLAGS += -DBOARD_DIR_878
++CFLAGS += -DBOARD_MAC2600R
+ BOARD_NUM_USB_PORTS=0
+ CONFIG_BOARD_RAM_SIZE=128
+diff --git a/trunk/configs/boards/DIR-878/kernel-4.4.x.config b/trunk/configs/boards/MAC2600R/kernel-4.4.x.config
+similarity index 99%
+rename from trunk/configs/boards/DIR-878/kernel-4.4.x.config
+rename to trunk/configs/boards/MAC2600R/kernel-4.4.x.config
+index ea83fe9..11c7e4e 100644
+--- a/trunk/configs/boards/DIR-878/kernel-4.4.x.config
++++ b/trunk/configs/boards/MAC2600R/kernel-4.4.x.config
+@@ -60,7 +60,7 @@ CONFIG_RALINK_MT7621=y
+ # CONFIG_SOC_RT3883 is not set
+ # CONFIG_SOC_MT7620 is not set
+ CONFIG_SOC_MT7621=y
+-CONFIG_RALINK_BUILTIN_DTB_NAME="dir-878"
++CONFIG_RALINK_BUILTIN_DTB_NAME="mac2600r"
+ CONFIG_RWSEM_GENERIC_SPINLOCK=y
+ # CONFIG_ARCH_HAS_ILOG2_U32 is not set
+ # CONFIG_ARCH_HAS_ILOG2_U64 is not set
+@@ -1351,11 +1351,11 @@ CONFIG_ETH_SKB_ALLOC_SELECT=y
+ # CONFIG_ETH_SLAB_ALLOC_SKB is not set
+ CONFIG_ETH_PAGE_ALLOC_SKB=y
+ CONFIG_RAETH_ESW_CONTROL=y
+-CONFIG_RAETH_ESW_PORT_WAN=4
+-CONFIG_RAETH_ESW_PORT_LAN1=3
++CONFIG_RAETH_ESW_PORT_WAN=0
++CONFIG_RAETH_ESW_PORT_LAN1=1
+ CONFIG_RAETH_ESW_PORT_LAN2=2
+-CONFIG_RAETH_ESW_PORT_LAN3=1
+-CONFIG_RAETH_ESW_PORT_LAN4=0
++CONFIG_RAETH_ESW_PORT_LAN3=3
++CONFIG_RAETH_ESW_PORT_LAN4=4
+ # CONFIG_FEALNX is not set
+ # CONFIG_NET_VENDOR_NATSEMI is not set
+ # CONFIG_NET_VENDOR_NVIDIA is not set
+@@ -1427,11 +1427,11 @@ CONFIG_RT_SECOND_IF_RF_OFFSET=0x8000
+ #
+ # MT7615/MT7915 common configs
+ #
+-CONFIG_FIRST_IF_EPAELNA=y
+-# CONFIG_FIRST_IF_IPAILNA is not set
++# CONFIG_FIRST_IF_EPAELNA is not set
++CONFIG_FIRST_IF_IPAILNA=y
+ # CONFIG_FIRST_IF_IPAELNA is not set
+-CONFIG_SECOND_IF_EPAELNA=y
+-# CONFIG_SECOND_IF_IPAILNA is not set
++# CONFIG_SECOND_IF_EPAELNA is not set
++CONFIG_SECOND_IF_IPAILNA=y
+ # CONFIG_SECOND_IF_IPAELNA is not set
+ # CONFIG_WIFI_MODE_AP is not set
+ # CONFIG_WIFI_MODE_STA is not set
+diff --git a/trunk/configs/boards/DIR-878/l1profile.dat b/trunk/configs/boards/MAC2600R/l1profile.dat
+similarity index 100%
+rename from trunk/configs/boards/DIR-878/l1profile.dat
+rename to trunk/configs/boards/MAC2600R/l1profile.dat
+diff --git a/trunk/configs/templates/DIR-878.config b/trunk/configs/templates/MAC2600R.config
+similarity index 93%
+rename from trunk/configs/templates/DIR-878.config
+rename to trunk/configs/templates/MAC2600R.config
+index 9b843f5..50a34f0 100644
+--- a/trunk/configs/templates/DIR-878.config
++++ b/trunk/configs/templates/MAC2600R.config
+@@ -3,7 +3,7 @@ CONFIG_VENDOR=Ralink
+ CONFIG_PRODUCT=MT7621
+ 
+ ### Target ProductID (board select, max 12 symbols)
+-CONFIG_FIRMWARE_PRODUCT_ID="DIR-878"
++CONFIG_FIRMWARE_PRODUCT_ID="MAC2600R"
+ 
+ ### Linux kernel and toolchain
+ CONFIG_FIRMWARE_INCLUDE_SFE=y
+@@ -86,17 +86,17 @@ CONFIG_FIRMWARE_INCLUDE_CIFS=n
+ 
+ ### Include WebUI international resources. Increased firmware size
+ CONFIG_FIRMWARE_INCLUDE_LANG_CN=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_BR=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_CZ=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_DA=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_DE=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_ES=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_FI=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_FR=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_NO=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_PL=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_RU=y
+-#CONFIG_FIRMWARE_INCLUDE_LANG_SV=y
++#CONFIG_FIRMWARE_INCLUDE_LANG_BR=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_CZ=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_DA=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_DE=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_ES=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_FI=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_FR=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_NO=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_PL=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_RU=n
++#CONFIG_FIRMWARE_INCLUDE_LANG_SV=n
+ #CONFIG_FIRMWARE_INCLUDE_LANG_UK=y
+ 
+ ### Include NTFS-3G FUSE driver (instead of Paragon "ufsd"). ~0.4MB
+diff --git a/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/dir-878.dts b/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mac2600r.dts
+similarity index 51%
+rename from trunk/linux-4.4.x/arch/mips/boot/dts/ralink/dir-878.dts
+rename to trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mac2600r.dts
+index be5b03a..b4aa797 100644
+--- a/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/dir-878.dts
++++ b/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mac2600r.dts
+@@ -8,33 +8,18 @@
+ 
+ / {
+ 	compatible = "mediatek,mt7621-soc";
+-	model = "D-Link DIR-878";
++	model = "Mercury MAC2600R";
+ 
+ 	chosen {
+-		bootargs = "console=ttyS0,57600";
++		bootargs = "console=ttyS0,115200";
+ 	};
+ 
+ 	leds {
+ 		compatible = "gpio-leds";
+ 
+-		power_orange {
+-			label = "power_2";
+-			gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+-		};
+-
+-		power_green {
++		sys_white {
+ 			label = "power";
+-			gpios = <&gpio0 16 GPIO_ACTIVE_LOW>;
+-		};
+-
+-		net_orange {
+-			label = "wan_2";
+-			gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
+-		};
+-
+-		net_green {
+-			label = "wan";
+-			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
++			gpios = <&gpio0 25 GPIO_ACTIVE_LOW>;
+ 		};
+ 	};
+ 
+@@ -44,24 +29,11 @@
+ 		#size-cells = <0>;
+ 		poll-interval = <20>;
+ 
+-		wps {
+-			label = "wps";
+-			gpios = <&gpio0 18 GPIO_ACTIVE_LOW>;
+-			linux,code = <KEY_WPS_BUTTON>;
+-		};
+-
+ 		reset {
+ 			label = "reset";
+-			gpios = <&gpio0 15 GPIO_ACTIVE_LOW>;
++			gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+ 			linux,code = <KEY_RESTART>;
+ 		};
+-
+-		fn1 { /* wlan */
+-			label = "fn1";
+-			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
+-			linux,code = <KEY_FN_1>;
+-		};
+-
+ 	};
+ };
+ 
+-- 
+2.32.0.windows.2
+

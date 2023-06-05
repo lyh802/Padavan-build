@@ -1,0 +1,39 @@
+From 4859acc8ed6953c54b689fb1a6387b6a2b3435c2 Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Tue, 20 Jun 2023 20:38:52 +0800
+Subject: [PATCH] Support eth0 on GMAC1
+
+---
+ trunk/user/rc/net_lan.c      | 2 +-
+ trunk/user/shared/netutils.h | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/trunk/user/rc/net_lan.c b/trunk/user/rc/net_lan.c
+index af13c06f..0f83e731 100644
+--- a/trunk/user/rc/net_lan.c
++++ b/trunk/user/rc/net_lan.c
+@@ -124,7 +124,7 @@ init_bridge(int is_ap_mode)
+ 	/* power up all switch PHY */
+ 	phy_ports_power(1);
+ 
+-#if defined (USE_SINGLE_MAC)
++#if (0)
+ 	if (!is_ap_mode)
+ 	{
+ 		/* create VLAN1/2 */
+diff --git a/trunk/user/shared/netutils.h b/trunk/user/shared/netutils.h
+index 07fe81b3..cbd8dba8 100644
+--- a/trunk/user/shared/netutils.h
++++ b/trunk/user/shared/netutils.h
+@@ -39,7 +39,7 @@
+ #define IFNAME_MAC			"eth2"
+ #define IFNAME_MAC2			"eth3"
+ #if defined (USE_SINGLE_MAC)
+-#define IFNAME_LAN			"eth2.1"
++#define IFNAME_LAN			IFNAME_MAC
+ #define IFNAME_WAN			"eth2.2"
+ #else
+ #define IFNAME_LAN			IFNAME_MAC
+-- 
+2.32.0.windows.2
+

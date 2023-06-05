@@ -1,0 +1,128 @@
+From 1d97a1e2b14361d5ac583ab3c5002ded1d133761 Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Sat, 24 Jun 2023 16:42:27 +0800
+Subject: [PATCH] Add WHNAT
+
+---
+ trunk/user/httpd/variables.c                           |  2 ++
+ trunk/user/rc/ralink.c                                 |  5 ++++-
+ trunk/user/shared/defaults.c                           |  2 ++
+ .../n56u_ribbon_fixed/Advanced_WAdvanced2g_Content.asp | 10 ++++++++++
+ .../n56u_ribbon_fixed/Advanced_WAdvanced_Content.asp   | 10 ++++++++++
+ 5 files changed, 28 insertions(+), 1 deletion(-)
+
+diff --git a/trunk/user/httpd/variables.c b/trunk/user/httpd/variables.c
+index 4d1995ea..7b5b547e 100644
+--- a/trunk/user/httpd/variables.c
++++ b/trunk/user/httpd/variables.c
+@@ -856,6 +856,7 @@
+ 			{"wl_HT_AMSDU", "", NULL, EVM_RESTART_WIFI5},
+ 			{"wl_HT_80211KV", "", NULL, EVM_RESTART_WIFI5},
+ 			{"wl_HT_80211R", "", NULL, EVM_RESTART_WIFI5},
++			{"wl_HT_WHNAT", "", NULL, EVM_RESTART_WIFI5},
+ 			{"wl_HT_MpduDensity", "", NULL, EVM_RESTART_WIFI5},
+ 			{"wl_HT_BAWinSize", "", NULL, EVM_RESTART_WIFI5},
+ 			{"wl_HT_AutoBA", "", NULL, EVM_RESTART_WIFI5},
+@@ -1257,6 +1258,7 @@
+ 			{"rt_HT_AMSDU", "", NULL, EVM_RESTART_WIFI2 },
+ 			{"rt_HT_80211KV", "", NULL, EVM_RESTART_WIFI2 },
+ 			{"rt_HT_80211R", "", NULL, EVM_RESTART_WIFI2 },
++			{"rt_HT_WHNAT", "", NULL, EVM_RESTART_WIFI2 },
+ 			{"rt_HT_MpduDensity", "", NULL, EVM_RESTART_WIFI2 },
+ 			{"rt_HT_BAWinSize", "", NULL, EVM_RESTART_WIFI2 },
+ 			{"rt_HT_AutoBA", "", NULL, EVM_RESTART_WIFI2},
+diff --git a/trunk/user/rc/ralink.c b/trunk/user/rc/ralink.c
+index 8a4deade..1f1ba57e 100644
+--- a/trunk/user/rc/ralink.c
++++ b/trunk/user/rc/ralink.c
+@@ -700,7 +700,10 @@ gen_ralink_config(int is_soc_ap, int is_aband, int disable_autoscan)
+ 	fprintf(fp, "PcieAspm=%d\n", 0);
+ 	fprintf(fp, "ThermalRecal=%d\n", 0);
+ 	fprintf(fp, "WCNTest=%d\n", 0);
+-	fprintf(fp, "WHNAT=%d\n", 0);
++
++	//WHNAT
++	i_val = nvram_wlan_get_int(is_aband, "HT_WHNAT");
++	fprintf(fp, "WHNAT=%d\n", i_val);
+ 	fprintf(fp, "BandDisabled=%d\n", 0);
+ 	fprintf(fp, "DfsDedicatedZeroWait=%d\n", 0);
+ 	fprintf(fp, "DfsZeroWaitDefault=%d\n", 0);
+diff --git a/trunk/user/shared/defaults.c b/trunk/user/shared/defaults.c
+index 6ddaf077..51d01dc8 100644
+--- a/trunk/user/shared/defaults.c
++++ b/trunk/user/shared/defaults.c
+@@ -237,6 +237,7 @@ struct nvram_pair router_defaults[] = {
+ #endif
+ 	{ "wl_HT_80211KV", "1" },
+ 	{ "wl_HT_80211R", "0" },
++	{ "wl_HT_WHNAT", "0" },
+ 	{ "wl_HT_MpduDensity", "5" },
+ 	{ "wl_HT_AutoBA", "1" },
+ 	{ "wl_VgaClamp", "0" },
+@@ -336,6 +337,7 @@ struct nvram_pair router_defaults[] = {
+ 	{ "rt_HT_MpduDensity", "5" },
+ 	{ "rt_HT_80211KV", "1" },
+ 	{ "rt_HT_80211R", "0" },
++	{ "rt_HT_WHNAT", "0" },
+ #if defined (USE_WID_2G) && (USE_WID_2G==7615 || USE_WID_2G==7915)
+ 	{ "rt_HT_BAWinSize", "256" },
+ 	{ "rt_ldpc", "1" },
+diff --git a/trunk/user/www/n56u_ribbon_fixed/Advanced_WAdvanced2g_Content.asp b/trunk/user/www/n56u_ribbon_fixed/Advanced_WAdvanced2g_Content.asp
+index d6370133..358a327f 100644
+--- a/trunk/user/www/n56u_ribbon_fixed/Advanced_WAdvanced2g_Content.asp
++++ b/trunk/user/www/n56u_ribbon_fixed/Advanced_WAdvanced2g_Content.asp
+@@ -54,6 +54,7 @@ function initial(){
+ 			showhide_div("row_ldpc", 1);
+ 			showhide_div("row_80211kv", 1);
+ 			showhide_div("row_80211r", 1);
++			showhide_div("row_whnat", 1);
+ 		}
+ 	}
+ 
+@@ -364,6 +365,15 @@ function done_validating(action){
+                                                 </select>
+                                             </td>
+                                         </tr>
++					<tr id="row_whnat">
++                                            <th>WHNAT</th>
++                                            <td>
++                                                <select name="rt_HT_WHNAT" class="input">
++                                                    <option value="0" <% nvram_match_x("", "rt_HT_WHNAT", "0", "selected"); %>><#btn_Disable#> (*)</option>
++                                                    <option value="1" <% nvram_match_x("", "rt_HT_WHNAT", "1", "selected"); %>><#btn_Enable#></option>
++                                                </select>
++                                            </td>
++                                        </tr>
+                                         <tr id="row_greenfield">
+                                             <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this, 3, 19);"><#WLANConfig11b_x_HT_OpMode_itemname#></a></th>
+                                             <td>
+diff --git a/trunk/user/www/n56u_ribbon_fixed/Advanced_WAdvanced_Content.asp b/trunk/user/www/n56u_ribbon_fixed/Advanced_WAdvanced_Content.asp
+index c05d551f..f7842b9c 100644
+--- a/trunk/user/www/n56u_ribbon_fixed/Advanced_WAdvanced_Content.asp
++++ b/trunk/user/www/n56u_ribbon_fixed/Advanced_WAdvanced_Content.asp
+@@ -46,6 +46,7 @@ function initial(){
+ 			showhide_div("row_ldpc", 1);
+ 			showhide_div("row_80211kv", 1);
+ 			showhide_div("row_80211r", 1);
++			showhide_div("row_whnat", 1);
+ 		} 
+ 	}
+ 
+@@ -344,6 +345,15 @@ function done_validating(action){
+                                                 </select>
+                                             </td>
+                                         </tr>
++					<tr id="row_whnat">
++                                            <th>WHNAT</th>
++                                            <td>
++                                                <select name="wl_HT_WHNAT" class="input">
++                                                    <option value="0" <% nvram_match_x("", "wl_HT_WHNAT", "0", "selected"); %>><#btn_Disable#> (*)</option>
++                                                    <option value="1" <% nvram_match_x("", "wl_HT_WHNAT", "1", "selected"); %>><#btn_Enable#></option>
++                                                </select>
++                                            </td>
++                                        </tr>
+                                         <tr id="row_greenfield">
+                                             <th><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this, 3, 19);"><#WLANConfig11b_x_HT_OpMode_itemname#></a></th>
+                                             <td>
+-- 
+2.32.0.windows.2
+

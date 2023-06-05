@@ -1,0 +1,38 @@
+From 8af9238a788e53e3ee912684d1c3b63e1f99d43e Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Tue, 6 Jun 2023 22:52:02 +0800
+Subject: [PATCH] Support 8M flash
+
+---
+ .../arch/mips/boot/dts/ralink/mt7621-spi-16m-layout.dtsi  | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mt7621-spi-16m-layout.dtsi b/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mt7621-spi-16m-layout.dtsi
+index 064961e..7b8a5bf 100644
+--- a/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mt7621-spi-16m-layout.dtsi
++++ b/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mt7621-spi-16m-layout.dtsi
+@@ -26,17 +26,17 @@
+ 
+ 		partition@50000 {
+ 			label = "firmware";
+-			reg = <0x50000 0xf30000>;
++			reg = <0x50000 0x7a0000>;
+ 		};
+ 
+-		partition@f80000 {
++		partition@7f0000 {
+ 			label = "Storage";
+-			reg = <0xf80000 0x80000>; /* 512K */
++			reg = <0x7f0000 0x10000>; /* 64K */
+ 		};
+ 
+ 		partition@all {
+ 			label = "ALL";
+-			reg = <0x0 0x1000000>;
++			reg = <0x0 0x800000>;
+ 		};
+ 	};
+ };
+-- 
+2.32.0.windows.2
+

@@ -1,0 +1,579 @@
+From f299c8145c4dc7a6b40694e122e6f011a7d1575b Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Sun, 11 Jun 2023 19:44:35 +0800
+Subject: [PATCH 4/5] Fix hnat_nf_hook
+
+---
+ .../net/ethernet/mediatek/mtk_hnat/hnat.c     | 12 +++--
+ .../net/ethernet/mediatek/mtk_hnat/hnat.h     | 15 +++---
+ .../ethernet/mediatek/mtk_hnat/hnat_debugfs.c |  2 +-
+ .../ethernet/mediatek/mtk_hnat/hnat_nf_hook.c | 48 ++++++++++++-------
+ .../ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h  | 12 ++---
+ .../net/ethernet/raeth/mtk_hnat/hnat.c        | 12 +++--
+ .../net/ethernet/raeth/mtk_hnat/hnat.h        | 15 +++---
+ .../ethernet/raeth/mtk_hnat/hnat_debugfs.c    |  2 +-
+ .../ethernet/raeth/mtk_hnat/hnat_nf_hook.c    | 48 ++++++++++++-------
+ .../net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h | 12 ++---
+ 10 files changed, 108 insertions(+), 70 deletions(-)
+
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat.c b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat.c
+index 66771200..ea7dca7a 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat.c
+@@ -333,6 +333,7 @@ static int hnat_hw_init(u32 ppe_id)
+ 	cr_set_bits(hnat_priv->ppe_base[ppe_id] + PPE_FLOW_CFG,
+ 		    //FIXME:BIT_UDP_IP4F_NAT_EN | BIT_IPV4_NAT_EN | BIT_IPV4_NAPT_EN |
+ 		    BIT_IPV4_NAT_EN | BIT_IPV4_NAPT_EN |
++		    //BIT_TCP_IP4F_NAT_EN | BIT_IPV4_NAT_EN | BIT_IPV4_NAPT_EN |
+ 		    BIT_IPV4_NAT_FRAG_EN | BIT_IPV4_HASH_GREK |
+ 		    BIT_IPV4_DSL_EN | BIT_IPV6_6RD_EN |
+ 		    BIT_IPV6_3T_ROUTE_EN | BIT_IPV6_5T_ROUTE_EN);
+@@ -624,7 +625,8 @@ int hnat_enable_hook(void)
+ {
+ 	/* register hook functions used by WHNAT module.
+ 	 */
+-	//if (hnat_priv->data->version == MTK_HNAT_V1_2) {
++	/*if (hnat_priv->data->version == MTK_HNAT_V1_1 ||
++	      hnat_priv->data->version == MTK_HNAT_V1_2) {*/
+ 	if (hnat_priv->data->whnat) {
+ 		ra_sw_nat_hook_rx =
+ 			(hnat_priv->data->version == MTK_HNAT_V2 ||
+@@ -824,8 +826,8 @@ static int hnat_probe(struct platform_device *pdev)
+ 	hnat_priv->ppe_base[0] = hnat_priv->fe_base + 0xe00;
+ #endif
+ 
+-	//hnat_priv->ipv6_en = true; /* enable ipv6 by default */
+-	//hnat_priv->guest_en = true; /* enable guest wifi by default */
++	hnat_priv->ipv6_en = true; /* enable ipv6 by default */
++	hnat_priv->guest_en = true; /* enable guest wifi by default */
+ 
+ 	err = hnat_init_debugfs(hnat_priv);
+ 	if (err)
+@@ -943,8 +945,8 @@ static int hnat_remove(struct platform_device *pdev)
+ 
+ static const struct mtk_hnat_data hnat_data_v1 = {
+ 	.num_of_sch = 2,
+-	.whnat = false,
+-	//TODO:.whnat = true,
++	//.whnat = false,
++	.whnat = true,
+ 	.per_flow_accounting = false,
+ 	.mcast = false,
+ 	.version = MTK_HNAT_V1_1,
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat.h b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat.h
+index 0a74791e..2b3fd86d 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat.h
+@@ -809,11 +809,11 @@ struct foe_entry {
+ /* If user wants to change default FOE entry number, both DEF_ETRY_NUM and
+  * DEF_ETRY_NUM_CFG need to be modified.
+  */
+-//#define DEF_ETRY_NUM		16384
+-#define DEF_ETRY_NUM		8192
++#define DEF_ETRY_NUM		16384
++//#define DEF_ETRY_NUM		8192
+ /* feasible values : 32768, 16384, 8192, 4096, 2048, 1024 */
+-//#define DEF_ETRY_NUM_CFG	TABLE_16K
+-#define DEF_ETRY_NUM_CFG	TABLE_8K
++#define DEF_ETRY_NUM_CFG	TABLE_16K
++//#define DEF_ETRY_NUM_CFG	TABLE_8K
+ /* corresponding values : TABLE_32K, TABLE_16K, TABLE_8K, TABLE_4K, TABLE_2K,
+  * TABLE_1K
+  */
+@@ -913,8 +913,8 @@ struct mtk_hnat {
+ 	struct timer_list hnat_mcast_check_timer;
+ 	bool nf_stat_en;
+ 	struct xlat_conf xlat;
+-	//bool ipv6_en;
+-	//bool guest_en;
++	bool ipv6_en;
++	bool guest_en;
+ };
+ 
+ struct extdev_entry {
+@@ -1113,7 +1113,8 @@ enum FoeIpAct {
+ 		      strlen(LAN2_DEV_NAME)))
+ #define IS_BR(dev) (!strncmp(dev->name, "br", 2))
+ /*#define IS_WHNAT(dev)							       \
+-	((hnat_priv->data->version == MTK_HNAT_V1_2 &&			       \*/
++	(((hnat_priv->data->version == MTK_HNAT_V1_1 ||
++	   hnat_priv->data->version == MTK_HNAT_V1_2) &&			       \*/
+ #define IS_WHNAT(dev)								\
+ 	((hnat_priv->data->whnat &&						\
+ 	 (get_wifi_hook_if_index_from_dev(dev) != 0)) ? 1 : 0)
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_debugfs.c b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_debugfs.c
+index f1e2ef00..45d31c9f 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_debugfs.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_debugfs.c
+@@ -29,7 +29,7 @@ int debug_level;
+ int dbg_cpu_reason;
+ int hook_toggle;
+ int mape_toggle;
+-int qos_toggle;
++int qos_toggle = 0;
+ int qos_dl_toggle = 1;
+ int qos_ul_toggle = 1;
+ int xlat_toggle;
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
+index af01600d..91708cf3 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
+@@ -235,10 +235,10 @@ int nf_hnat_netdevice_event(struct notifier_block *unused, unsigned long event,
+ 
+ 	switch (event) {
+ 	case NETDEV_UP:
+-		/*TODO:if (!hnat_priv->guest_en && dev->name) {
++		if (!hnat_priv->guest_en && dev->name) {
+ 			if (!strcmp(dev->name, "ra1") || !strcmp(dev->name, "rai1") || !strcmp(dev->name, "rax1"))
+ 				break;
+-		}*/
++		}
+ 
+ 		gmac_ppe_fwd_enable(dev);
+ 
+@@ -808,6 +808,8 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
+ 	    is_multicast_ether_addr(eth->h_dest))*/
+ 	if (!is_magic_tag_valid(skb) || !IS_SPACE_AVAILABLE_HEAD(skb) ||
+ 	    is_broadcast_ether_addr(eth->h_dest))
++	/*TODO:if (!IS_SPACE_AVAILABLE_HEAD(skb) ||
++	    is_broadcast_ether_addr(eth->h_dest))*/
+ 		return 0;
+ 
+ 	switch (ntohs(skb->protocol)) {
+@@ -867,6 +869,9 @@ mtk_hnat_ipv6_nf_pre_routing(void *priv, struct sk_buff *skb,
+ 
+ 	/* packets from external devices -> xxx ,step 1 , learning stage & bound stage*/
+ 	if (do_ext2ge_fast_try(state->in, skb)) {
++		//TODO:
++		/*if (unlikely(IS_BR(state->in)))
++			return NF_ACCEPT;*/
+ 		if (!do_hnat_ext_to_ge(skb, state->in, __func__))
+ 			return NF_STOLEN;
+ 		return NF_ACCEPT;
+@@ -950,6 +955,9 @@ mtk_hnat_ipv4_nf_pre_routing(void *priv, struct sk_buff *skb,
+ 
+ 	/* packets from external devices -> xxx ,step 1 , learning stage & bound stage*/
+ 	if (do_ext2ge_fast_try(state->in, skb)) {
++		//TODO:
++		/*if (unlikely(IS_BR(state->in)))
++			return NF_ACCEPT;*/
+ 		if (!do_hnat_ext_to_ge(skb, state->in, __func__))
+ 			return NF_STOLEN;
+ 		return NF_ACCEPT;
+@@ -1017,6 +1025,9 @@ mtk_hnat_br_nf_local_in(void *priv, struct sk_buff *skb,
+ 	/* packets from external devices -> xxx ,step 1 , learning stage & bound stage*/
+ 	if ((skb_hnat_iface(skb) == FOE_MAGIC_EXT) && !is_from_extge(skb) &&
+ 	    !is_multicast_ether_addr(eth_hdr(skb)->h_dest)) {
++		//TODO:
++		/*if (unlikely(IS_BR(state->in)))
++			return NF_ACCEPT;*/
+ 		if (!hnat_priv->g_ppdev)
+ 			hnat_priv->g_ppdev = dev_get_by_name(&init_net, hnat_priv->ppd);
+ 
+@@ -1809,15 +1820,17 @@ static unsigned int skb_to_hnat_info(struct sk_buff *skb,
+ 			else
+ 				gmac = (IS_GMAC1_MODE) ? NR_GMAC1_PORT : NR_GMAC2_PORT;
+ 		}
+-	/*FIXME:} else if (IS_EXT(dev)) {
+-		if ((hnat_priv->data->version != MTK_HNAT_V2) && IS_GMAC1_MODE) {*/
+-	} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
+-		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {
++	} else if (IS_EXT(dev)) {
++		/*FIXME:if ((hnat_priv->data->version != MTK_HNAT_V1_1 &&
++		     hnat_priv->data->version != MTK_HNAT_V1_2) &&
++		    IS_GMAC1_MODE) {*/
++	/*} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
++		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {*/
+ 		if (!hnat_priv->data->whnat && IS_GMAC1_MODE) {
+ 			entry.bfib1.vpm = 1;
+ 			entry.bfib1.vlan_layer = 1;
+ 
+-			if (FROM_GE_LAN(skb))
++			if (FROM_GE_LAN_GRP(skb))
+ 				entry.ipv4_hnapt.vlan1 = 1;
+ 			else if (FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb))
+ 				entry.ipv4_hnapt.vlan1 = 2;
+@@ -2078,7 +2091,8 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
+ 	/* MT7622 wifi hw_nat not support QoS */
+ 	if (IS_IPV4_GRP(entry)) {
+ 		entry->ipv4_hnapt.iblk2.fqos = 0;
+-		if ((hnat_priv->data->version == MTK_HNAT_V1_2 &&
++		if (((hnat_priv->data->version == MTK_HNAT_V1_1 ||
++		      hnat_priv->data->version == MTK_HNAT_V1_2) &&
+ 		     gmac_no == NR_WHNAT_WDMA_PORT) ||
+ 		    ((hnat_priv->data->version == MTK_HNAT_V2 ||
+ 		      hnat_priv->data->version == MTK_HNAT_V3) &&
+@@ -2152,7 +2166,8 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
+ #endif
+ 	} else {
+ 		entry->ipv6_5t_route.iblk2.fqos = 0;
+-		if ((hnat_priv->data->version == MTK_HNAT_V1_2 &&
++		if (((hnat_priv->data->version == MTK_HNAT_V1_1 ||
++		      hnat_priv->data->version == MTK_HNAT_V1_2) &&
+ 		     gmac_no == NR_WHNAT_WDMA_PORT) ||
+ 		    ((hnat_priv->data->version == MTK_HNAT_V2 ||
+ 		      hnat_priv->data->version == MTK_HNAT_V3) &&
+@@ -2249,10 +2264,10 @@ void mtk_ppe_dev_register_hook(struct net_device *dev)
+ 	/*FIXME:if (dev->name && !strcmp(dev->name, "wds"))
+ 		return;*/
+ 
+-	/*TODO:if (!hnat_priv->guest_en && dev->name) {
++	if (!hnat_priv->guest_en && dev->name) {
+ 		if (!strcmp(dev->name, "ra1") || !strcmp(dev->name, "rai1") || !strcmp(dev->name, "rax1"))
+ 			return;
+-	}*/
++	}
+ 
+ 	for (i = 1; i < MAX_IF_NUM; i++) {
+ 		if (hnat_priv->wifi_hook_if[i] == dev) {
+@@ -2692,9 +2707,9 @@ static unsigned int mtk_hnat_nf_post_routing(
+ 						.virt_dev = (struct net_device*)out };*/
+ 	const struct net_device *arp_dev = out;
+ 
+-	/*TODO:if (skb->protocol == htons(ETH_P_IPV6) && !hnat_priv->ipv6_en) {
++	if (skb->protocol == htons(ETH_P_IPV6) && !hnat_priv->ipv6_en) {
+ 		return 0;
+-	}*/
++	}
+ 
+ 	if (xlat_toggle && !mtk_464xlat_post_process(skb, out))
+ 		return 0;
+@@ -2767,8 +2782,8 @@ static unsigned int mtk_hnat_nf_post_routing(
+ 			entry->ipv4_hnapt.m_timestamp = foe_timestamp(hnat_priv);
+ 
+ 		if (entry_hnat_is_bound(entry)) {
+-			//FIXME:memset(skb_hnat_info(skb), 0, FOE_INFO_LEN);
+-			memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
++			memset(skb_hnat_info(skb), 0, FOE_INFO_LEN);
++			//TODO:memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
+ 
+ 			return -1;
+ 		}
+@@ -3028,7 +3043,8 @@ static unsigned int mtk_hnat_br_nf_forward(void *priv,
+ 					   const struct nf_hook_state *state)
+ {
+ 	//FIXME:if (unlikely(IS_EXT(state->in) && IS_EXT(state->out)))
+-	if ((hnat_priv->data->version == MTK_HNAT_V1_2) &&
++	if ((hnat_priv->data->version == MTK_HNAT_V1_1 ||
++	     hnat_priv->data->version == MTK_HNAT_V1_2) &&
+ 	    unlikely(IS_EXT(state->in) && IS_EXT(state->out)))
+ 		hnat_set_head_frags(state, skb, 1, hnat_set_alg);
+ 
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h
+index 6bb66858..3d7448e6 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h
+@@ -72,16 +72,16 @@ struct hnat_desc {
+ 	u32 rev : 1;*/
+ 	u32 sport : 4;
+ 	u32 alg : 1;
+-	//FIXME:u32 iface : 4;
+-	u32 iface : 8;
++	u32 iface : 4;
++	//TODO:u32 iface : 8;
+ 	//u32 resv : 4;
+ 	u32 filled : 3;
+ 	u32 resv : 1;
+ 	u32 magic_tag_protect : 16;
+ 	u32 wdmaid : 8;
+ 	u32 rxid : 2;
+-	//FIXME:u32 wcid : 8;
+-	u32 wcid : 10;
++	u32 wcid : 8;
++	//TODO:u32 wcid : 10;
+ 	u32 bssid : 6;
+ } __packed;
+ #endif
+@@ -91,8 +91,8 @@ struct hnat_desc {
+ 
+ #define HNAT_MAGIC_TAG 0x6789
+ #define HNAT_INFO_FILLED 0x7
+-//FIXME:#define WIFI_INFO_LEN 3
+-#define WIFI_INFO_LEN 6
++#define WIFI_INFO_LEN 3
++//TODO:#define WIFI_INFO_LEN 6
+ #define FOE_INFO_LEN (10 + WIFI_INFO_LEN)
+ #define IS_SPACE_AVAILABLE_HEAD(skb)                                           \
+ 	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.c
+index 66771200..ea7dca7a 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.c
+@@ -333,6 +333,7 @@ static int hnat_hw_init(u32 ppe_id)
+ 	cr_set_bits(hnat_priv->ppe_base[ppe_id] + PPE_FLOW_CFG,
+ 		    //FIXME:BIT_UDP_IP4F_NAT_EN | BIT_IPV4_NAT_EN | BIT_IPV4_NAPT_EN |
+ 		    BIT_IPV4_NAT_EN | BIT_IPV4_NAPT_EN |
++		    //BIT_TCP_IP4F_NAT_EN | BIT_IPV4_NAT_EN | BIT_IPV4_NAPT_EN |
+ 		    BIT_IPV4_NAT_FRAG_EN | BIT_IPV4_HASH_GREK |
+ 		    BIT_IPV4_DSL_EN | BIT_IPV6_6RD_EN |
+ 		    BIT_IPV6_3T_ROUTE_EN | BIT_IPV6_5T_ROUTE_EN);
+@@ -624,7 +625,8 @@ int hnat_enable_hook(void)
+ {
+ 	/* register hook functions used by WHNAT module.
+ 	 */
+-	//if (hnat_priv->data->version == MTK_HNAT_V1_2) {
++	/*if (hnat_priv->data->version == MTK_HNAT_V1_1 ||
++	      hnat_priv->data->version == MTK_HNAT_V1_2) {*/
+ 	if (hnat_priv->data->whnat) {
+ 		ra_sw_nat_hook_rx =
+ 			(hnat_priv->data->version == MTK_HNAT_V2 ||
+@@ -824,8 +826,8 @@ static int hnat_probe(struct platform_device *pdev)
+ 	hnat_priv->ppe_base[0] = hnat_priv->fe_base + 0xe00;
+ #endif
+ 
+-	//hnat_priv->ipv6_en = true; /* enable ipv6 by default */
+-	//hnat_priv->guest_en = true; /* enable guest wifi by default */
++	hnat_priv->ipv6_en = true; /* enable ipv6 by default */
++	hnat_priv->guest_en = true; /* enable guest wifi by default */
+ 
+ 	err = hnat_init_debugfs(hnat_priv);
+ 	if (err)
+@@ -943,8 +945,8 @@ static int hnat_remove(struct platform_device *pdev)
+ 
+ static const struct mtk_hnat_data hnat_data_v1 = {
+ 	.num_of_sch = 2,
+-	.whnat = false,
+-	//TODO:.whnat = true,
++	//.whnat = false,
++	.whnat = true,
+ 	.per_flow_accounting = false,
+ 	.mcast = false,
+ 	.version = MTK_HNAT_V1_1,
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.h b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.h
+index 0a74791e..2b3fd86d 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.h
+@@ -809,11 +809,11 @@ struct foe_entry {
+ /* If user wants to change default FOE entry number, both DEF_ETRY_NUM and
+  * DEF_ETRY_NUM_CFG need to be modified.
+  */
+-//#define DEF_ETRY_NUM		16384
+-#define DEF_ETRY_NUM		8192
++#define DEF_ETRY_NUM		16384
++//#define DEF_ETRY_NUM		8192
+ /* feasible values : 32768, 16384, 8192, 4096, 2048, 1024 */
+-//#define DEF_ETRY_NUM_CFG	TABLE_16K
+-#define DEF_ETRY_NUM_CFG	TABLE_8K
++#define DEF_ETRY_NUM_CFG	TABLE_16K
++//#define DEF_ETRY_NUM_CFG	TABLE_8K
+ /* corresponding values : TABLE_32K, TABLE_16K, TABLE_8K, TABLE_4K, TABLE_2K,
+  * TABLE_1K
+  */
+@@ -913,8 +913,8 @@ struct mtk_hnat {
+ 	struct timer_list hnat_mcast_check_timer;
+ 	bool nf_stat_en;
+ 	struct xlat_conf xlat;
+-	//bool ipv6_en;
+-	//bool guest_en;
++	bool ipv6_en;
++	bool guest_en;
+ };
+ 
+ struct extdev_entry {
+@@ -1113,7 +1113,8 @@ enum FoeIpAct {
+ 		      strlen(LAN2_DEV_NAME)))
+ #define IS_BR(dev) (!strncmp(dev->name, "br", 2))
+ /*#define IS_WHNAT(dev)							       \
+-	((hnat_priv->data->version == MTK_HNAT_V1_2 &&			       \*/
++	(((hnat_priv->data->version == MTK_HNAT_V1_1 ||
++	   hnat_priv->data->version == MTK_HNAT_V1_2) &&			       \*/
+ #define IS_WHNAT(dev)								\
+ 	((hnat_priv->data->whnat &&						\
+ 	 (get_wifi_hook_if_index_from_dev(dev) != 0)) ? 1 : 0)
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_debugfs.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_debugfs.c
+index f1e2ef00..45d31c9f 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_debugfs.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_debugfs.c
+@@ -29,7 +29,7 @@ int debug_level;
+ int dbg_cpu_reason;
+ int hook_toggle;
+ int mape_toggle;
+-int qos_toggle;
++int qos_toggle = 0;
+ int qos_dl_toggle = 1;
+ int qos_ul_toggle = 1;
+ int xlat_toggle;
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_nf_hook.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_nf_hook.c
+index af01600d..91708cf3 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_nf_hook.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_nf_hook.c
+@@ -235,10 +235,10 @@ int nf_hnat_netdevice_event(struct notifier_block *unused, unsigned long event,
+ 
+ 	switch (event) {
+ 	case NETDEV_UP:
+-		/*TODO:if (!hnat_priv->guest_en && dev->name) {
++		if (!hnat_priv->guest_en && dev->name) {
+ 			if (!strcmp(dev->name, "ra1") || !strcmp(dev->name, "rai1") || !strcmp(dev->name, "rax1"))
+ 				break;
+-		}*/
++		}
+ 
+ 		gmac_ppe_fwd_enable(dev);
+ 
+@@ -808,6 +808,8 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
+ 	    is_multicast_ether_addr(eth->h_dest))*/
+ 	if (!is_magic_tag_valid(skb) || !IS_SPACE_AVAILABLE_HEAD(skb) ||
+ 	    is_broadcast_ether_addr(eth->h_dest))
++	/*TODO:if (!IS_SPACE_AVAILABLE_HEAD(skb) ||
++	    is_broadcast_ether_addr(eth->h_dest))*/
+ 		return 0;
+ 
+ 	switch (ntohs(skb->protocol)) {
+@@ -867,6 +869,9 @@ mtk_hnat_ipv6_nf_pre_routing(void *priv, struct sk_buff *skb,
+ 
+ 	/* packets from external devices -> xxx ,step 1 , learning stage & bound stage*/
+ 	if (do_ext2ge_fast_try(state->in, skb)) {
++		//TODO:
++		/*if (unlikely(IS_BR(state->in)))
++			return NF_ACCEPT;*/
+ 		if (!do_hnat_ext_to_ge(skb, state->in, __func__))
+ 			return NF_STOLEN;
+ 		return NF_ACCEPT;
+@@ -950,6 +955,9 @@ mtk_hnat_ipv4_nf_pre_routing(void *priv, struct sk_buff *skb,
+ 
+ 	/* packets from external devices -> xxx ,step 1 , learning stage & bound stage*/
+ 	if (do_ext2ge_fast_try(state->in, skb)) {
++		//TODO:
++		/*if (unlikely(IS_BR(state->in)))
++			return NF_ACCEPT;*/
+ 		if (!do_hnat_ext_to_ge(skb, state->in, __func__))
+ 			return NF_STOLEN;
+ 		return NF_ACCEPT;
+@@ -1017,6 +1025,9 @@ mtk_hnat_br_nf_local_in(void *priv, struct sk_buff *skb,
+ 	/* packets from external devices -> xxx ,step 1 , learning stage & bound stage*/
+ 	if ((skb_hnat_iface(skb) == FOE_MAGIC_EXT) && !is_from_extge(skb) &&
+ 	    !is_multicast_ether_addr(eth_hdr(skb)->h_dest)) {
++		//TODO:
++		/*if (unlikely(IS_BR(state->in)))
++			return NF_ACCEPT;*/
+ 		if (!hnat_priv->g_ppdev)
+ 			hnat_priv->g_ppdev = dev_get_by_name(&init_net, hnat_priv->ppd);
+ 
+@@ -1809,15 +1820,17 @@ static unsigned int skb_to_hnat_info(struct sk_buff *skb,
+ 			else
+ 				gmac = (IS_GMAC1_MODE) ? NR_GMAC1_PORT : NR_GMAC2_PORT;
+ 		}
+-	/*FIXME:} else if (IS_EXT(dev)) {
+-		if ((hnat_priv->data->version != MTK_HNAT_V2) && IS_GMAC1_MODE) {*/
+-	} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
+-		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {
++	} else if (IS_EXT(dev)) {
++		/*FIXME:if ((hnat_priv->data->version != MTK_HNAT_V1_1 &&
++		     hnat_priv->data->version != MTK_HNAT_V1_2) &&
++		    IS_GMAC1_MODE) {*/
++	/*} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
++		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {*/
+ 		if (!hnat_priv->data->whnat && IS_GMAC1_MODE) {
+ 			entry.bfib1.vpm = 1;
+ 			entry.bfib1.vlan_layer = 1;
+ 
+-			if (FROM_GE_LAN(skb))
++			if (FROM_GE_LAN_GRP(skb))
+ 				entry.ipv4_hnapt.vlan1 = 1;
+ 			else if (FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb))
+ 				entry.ipv4_hnapt.vlan1 = 2;
+@@ -2078,7 +2091,8 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
+ 	/* MT7622 wifi hw_nat not support QoS */
+ 	if (IS_IPV4_GRP(entry)) {
+ 		entry->ipv4_hnapt.iblk2.fqos = 0;
+-		if ((hnat_priv->data->version == MTK_HNAT_V1_2 &&
++		if (((hnat_priv->data->version == MTK_HNAT_V1_1 ||
++		      hnat_priv->data->version == MTK_HNAT_V1_2) &&
+ 		     gmac_no == NR_WHNAT_WDMA_PORT) ||
+ 		    ((hnat_priv->data->version == MTK_HNAT_V2 ||
+ 		      hnat_priv->data->version == MTK_HNAT_V3) &&
+@@ -2152,7 +2166,8 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
+ #endif
+ 	} else {
+ 		entry->ipv6_5t_route.iblk2.fqos = 0;
+-		if ((hnat_priv->data->version == MTK_HNAT_V1_2 &&
++		if (((hnat_priv->data->version == MTK_HNAT_V1_1 ||
++		      hnat_priv->data->version == MTK_HNAT_V1_2) &&
+ 		     gmac_no == NR_WHNAT_WDMA_PORT) ||
+ 		    ((hnat_priv->data->version == MTK_HNAT_V2 ||
+ 		      hnat_priv->data->version == MTK_HNAT_V3) &&
+@@ -2249,10 +2264,10 @@ void mtk_ppe_dev_register_hook(struct net_device *dev)
+ 	/*FIXME:if (dev->name && !strcmp(dev->name, "wds"))
+ 		return;*/
+ 
+-	/*TODO:if (!hnat_priv->guest_en && dev->name) {
++	if (!hnat_priv->guest_en && dev->name) {
+ 		if (!strcmp(dev->name, "ra1") || !strcmp(dev->name, "rai1") || !strcmp(dev->name, "rax1"))
+ 			return;
+-	}*/
++	}
+ 
+ 	for (i = 1; i < MAX_IF_NUM; i++) {
+ 		if (hnat_priv->wifi_hook_if[i] == dev) {
+@@ -2692,9 +2707,9 @@ static unsigned int mtk_hnat_nf_post_routing(
+ 						.virt_dev = (struct net_device*)out };*/
+ 	const struct net_device *arp_dev = out;
+ 
+-	/*TODO:if (skb->protocol == htons(ETH_P_IPV6) && !hnat_priv->ipv6_en) {
++	if (skb->protocol == htons(ETH_P_IPV6) && !hnat_priv->ipv6_en) {
+ 		return 0;
+-	}*/
++	}
+ 
+ 	if (xlat_toggle && !mtk_464xlat_post_process(skb, out))
+ 		return 0;
+@@ -2767,8 +2782,8 @@ static unsigned int mtk_hnat_nf_post_routing(
+ 			entry->ipv4_hnapt.m_timestamp = foe_timestamp(hnat_priv);
+ 
+ 		if (entry_hnat_is_bound(entry)) {
+-			//FIXME:memset(skb_hnat_info(skb), 0, FOE_INFO_LEN);
+-			memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
++			memset(skb_hnat_info(skb), 0, FOE_INFO_LEN);
++			//TODO:memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
+ 
+ 			return -1;
+ 		}
+@@ -3028,7 +3043,8 @@ static unsigned int mtk_hnat_br_nf_forward(void *priv,
+ 					   const struct nf_hook_state *state)
+ {
+ 	//FIXME:if (unlikely(IS_EXT(state->in) && IS_EXT(state->out)))
+-	if ((hnat_priv->data->version == MTK_HNAT_V1_2) &&
++	if ((hnat_priv->data->version == MTK_HNAT_V1_1 ||
++	     hnat_priv->data->version == MTK_HNAT_V1_2) &&
+ 	    unlikely(IS_EXT(state->in) && IS_EXT(state->out)))
+ 		hnat_set_head_frags(state, skb, 1, hnat_set_alg);
+ 
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h
+index 6bb66858..3d7448e6 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h
+@@ -72,16 +72,16 @@ struct hnat_desc {
+ 	u32 rev : 1;*/
+ 	u32 sport : 4;
+ 	u32 alg : 1;
+-	//FIXME:u32 iface : 4;
+-	u32 iface : 8;
++	u32 iface : 4;
++	//TODO:u32 iface : 8;
+ 	//u32 resv : 4;
+ 	u32 filled : 3;
+ 	u32 resv : 1;
+ 	u32 magic_tag_protect : 16;
+ 	u32 wdmaid : 8;
+ 	u32 rxid : 2;
+-	//FIXME:u32 wcid : 8;
+-	u32 wcid : 10;
++	u32 wcid : 8;
++	//TODO:u32 wcid : 10;
+ 	u32 bssid : 6;
+ } __packed;
+ #endif
+@@ -91,8 +91,8 @@ struct hnat_desc {
+ 
+ #define HNAT_MAGIC_TAG 0x6789
+ #define HNAT_INFO_FILLED 0x7
+-//FIXME:#define WIFI_INFO_LEN 3
+-#define WIFI_INFO_LEN 6
++#define WIFI_INFO_LEN 3
++//TODO:#define WIFI_INFO_LEN 6
+ #define FOE_INFO_LEN (10 + WIFI_INFO_LEN)
+ #define IS_SPACE_AVAILABLE_HEAD(skb)                                           \
+ 	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
+-- 
+2.32.0.windows.2
+

@@ -1,0 +1,44 @@
+From fbfb4e6966870998c7afbd83bcacc9de6894000e Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Thu, 8 Jun 2023 20:49:27 +0800
+Subject: [PATCH] Support mtk_hnat
+
+---
+ .../arch/mips/boot/dts/ralink/mt7621-raeth-gmac2.dtsi  | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mt7621-raeth-gmac2.dtsi b/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mt7621-raeth-gmac2.dtsi
+index 134db83..2a13401 100644
+--- a/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mt7621-raeth-gmac2.dtsi
++++ b/trunk/linux-4.4.x/arch/mips/boot/dts/ralink/mt7621-raeth-gmac2.dtsi
+@@ -3,9 +3,9 @@
+ 	mac-address = [00 00 00 00 00 00];
+ 	gmac1-support = "rgmii-1";
+ 	rgmii-mode-1 = "force-1000";
+-	gmac2-support = "rgmii-2";
+-	rgmii-mode-2 = "force-1000";
+-	gmac2-phy-address = <0>;
++	//gmac2-support = "rgmii-2";
++	//rgmii-mode-2 = "force-1000";
++	//gmac2-phy-address = <0>;
+ 	gmac1_txq_num = <1>;
+ 	gmac1_txq_txd_num = <1024>;
+ 	gmac2_txq_num = <1>;
+@@ -14,10 +14,10 @@
+ };
+ 
+ &hnat {
+-        mtketh-wan = "eth3";
++        mtketh-wan = "eth2.2";
+-        mtketh-ppd = "eth2";
++        mtketh-ppd = "eth2.1";
+-        mtketh-lan = "eth2";
++        mtketh-lan = "eth2";
+ 	ext-devices = "wlan0","wlan1","rax0","ra0", "rai0","apclii0","apclix0", "apcli0";
+-        mtketh-max-gmac = <2>;
++        mtketh-max-gmac = <1>;
+         status = "okay";
+ };
+-- 
+2.32.0.windows.2
+

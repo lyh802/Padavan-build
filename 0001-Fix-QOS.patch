@@ -1,0 +1,63 @@
+From 125594a07ea468a1749ec2fcc7798b77575a56ff Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Mon, 26 Jun 2023 16:38:46 +0800
+Subject: [PATCH] Fix QOS
+
+---
+ trunk/user/sqm-qos/scripts/run.sh                 | 5 +++--
+ trunk/user/www/n56u_ribbon_fixed/Advanced_SQM.asp | 9 +++++++++
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/trunk/user/sqm-qos/scripts/run.sh b/trunk/user/sqm-qos/scripts/run.sh
+index 80a2b55..eb29f5e 100644
+--- a/trunk/user/sqm-qos/scripts/run.sh
++++ b/trunk/user/sqm-qos/scripts/run.sh
+@@ -24,7 +24,7 @@ stop_statefile() {
+ }
+ 
+ runmode_1(){
+-export IFACE="eth3"
++# export IFACE="eth2.1"
+ nvram set hw_nat_mode=1
+ nvram commit
+ rmmod hw_nat
+@@ -40,7 +40,7 @@ iwpriv rax0 set hw_nat_register=1
+ }
+ 
+ runmode_2(){
+-export IFACE="eth3"
++# export IFACE="eth2.1"
+ nvram set hw_nat_mode=0
+ nvram commit
+ rmmod hw_nat
+@@ -52,6 +52,7 @@ rmmod hw_nat
+ start_sqm_section() {
+     runmode="$(nvram get sqm_flag)"
+     local section="sqm_"
++    export IFACE=$(nvram get sqm_active)
+ 
+     [ -z "$RUN_IFACE" -o "$RUN_IFACE" = "$IFACE" ] || return
+     [ "$(nvram get sqm_enable)" -eq 1 ] || return 0
+diff --git a/trunk/user/www/n56u_ribbon_fixed/Advanced_SQM.asp b/trunk/user/www/n56u_ribbon_fixed/Advanced_SQM.asp
+index 6c0182c..ad47057 100644
+--- a/trunk/user/www/n56u_ribbon_fixed/Advanced_SQM.asp
++++ b/trunk/user/www/n56u_ribbon_fixed/Advanced_SQM.asp
+@@ -196,6 +196,15 @@ function getHash(){
+                                                 </select>
+                                             </td>
+                                         </tr>
++                                            <tr>
++                                                <th>自定义接口</th>
++                                                <td>
++                                                    <input type="text" maxlength="10" class="input" size="10" name="sqm_active" value="<% nvram_get_x("","sqm_active"); %>"/>
++                                                </td>
++                                                <td>
++                                                    &nbsp;<span style="color:#888;">上项菜单需选择“自定义接口“ 可填写例如:ra0</span>
++                                                </td>
++                                            </tr>
+                                             <tr>
+                                                 <th>队列规则</th>
+                                                 <td>
+-- 
+2.32.0.windows.2
+

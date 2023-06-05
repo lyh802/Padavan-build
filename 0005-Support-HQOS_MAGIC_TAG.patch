@@ -1,0 +1,490 @@
+From bdd3686f42c799f6a51816048df915e8cf4e87a4 Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Tue, 20 Jun 2023 17:55:46 +0800
+Subject: [PATCH 5/5] Support HQOS_MAGIC_TAG
+
+---
+ .../ethernet/mediatek/mtk_hnat/hnat_nf_hook.c | 62 ++++++++++++-------
+ .../ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h  |  2 +-
+ .../ethernet/raeth/mtk_hnat/hnat_nf_hook.c    | 62 ++++++++++++-------
+ .../net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h |  2 +-
+ trunk/linux-4.4.x/net/8021q/vlan.c            | 13 +++-
+ trunk/linux-4.4.x/net/8021q/vlan_core.c       |  9 ++-
+ trunk/linux-4.4.x/net/core/dev.c              | 19 +++++-
+ 7 files changed, 119 insertions(+), 50 deletions(-)
+
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
+index 91708cf3..dcd84969 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
+@@ -518,8 +518,9 @@ unsigned int do_hnat_ge_to_ext(struct sk_buff *skb, const char *func)
+ 	skb->dev = dev;
+ 
+ 	//if (qos_toggle && eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-	if (IS_HQOS_MODE && eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-		skb = skb_unshare(skb, GFP_ATOMIC);
++	/*if (IS_HQOS_MODE && skb->vlan_proto == HQOS_MAGIC_TAG) {
++		//skb = skb_unshare(skb, GFP_ATOMIC);
++		skb = skb_share_check(skb, GFP_ATOMIC);
+ 		if (!skb)
+ 			return NF_ACCEPT;
+ 
+@@ -527,10 +528,11 @@ unsigned int do_hnat_ge_to_ext(struct sk_buff *skb, const char *func)
+ 			return NF_ACCEPT;
+ 
+ 		skb_pull_rcsum(skb, VLAN_HLEN);
++		//vlan_set_encap_proto(skb, (struct vlan_hdr *)skb->data);
+ 
+ 		memmove(skb->data - ETH_HLEN, skb->data - ETH_HLEN - VLAN_HLEN,
+ 			2 * ETH_ALEN);
+-	}
++	}*/
+ 
+ 	if (skb->dev) {
+ 		skb_set_network_header(skb, 0);
+@@ -992,22 +994,27 @@ static unsigned int
+ mtk_hnat_br_nf_local_in(void *priv, struct sk_buff *skb,
+ 			const struct nf_hook_state *state)
+ {
+-	struct vlan_ethhdr *veth;
++	//struct vlan_ethhdr *veth;
++	__be16 vlan_proto = skb->vlan_proto;
+ 
+ 	if (!skb)
+ 		goto drop;
+ 
+ 	//if (qos_toggle && hnat_priv->data->whnat) {
+-	if (IS_HQOS_MODE && hnat_priv->data->whnat) {
+-		veth = (struct vlan_ethhdr *)skb_mac_header(skb);
++	//if (IS_HQOS_MODE && hnat_priv->data->whnat) {
++		//veth = (struct vlan_ethhdr *)skb_mac_header(skb);
+ 
+-		if (eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-			skb_hnat_entry(skb) = ntohs(veth->h_vlan_TCI) & 0x3fff;
++		if (vlan_proto == HQOS_MAGIC_TAG) {
++			skb_hnat_entry(skb) = skb->vlan_tci & 0x3fff;
+ 			skb_hnat_reason(skb) = HIT_BIND_FORCE_TO_CPU;
++			skb->vlan_proto = 0;
++			skb->vlan_tci = 0;
++			goto ge2ext;
+ 		}
+-	}
++	//}
+ 
+-	if (!HAS_HQOS_MAGIC_TAG(skb) && !is_ppe_support_type(skb)) {
++	//if (!HAS_HQOS_MAGIC_TAG(skb) && !is_ppe_support_type(skb)) {
++	if (!is_ppe_support_type(skb)) {
+ 		hnat_set_head_frags(state, skb, 1, hnat_set_alg);
+ 		return NF_ACCEPT;
+ 	}
+@@ -1041,8 +1048,9 @@ mtk_hnat_br_nf_local_in(void *priv, struct sk_buff *skb,
+ 			clr_from_extge(skb);
+ 
+ 		/* packets from external devices -> xxx ,step 2, learning stage */
+-		if (do_ext2ge_fast_learn(state->in, skb) && (!qos_toggle ||
+-		    (qos_toggle && eth_hdr(skb)->h_proto != HQOS_MAGIC_TAG))) {
++		//if (do_ext2ge_fast_learn(state->in, skb) && (!qos_toggle ||
++		//    (qos_toggle && vlan_proto != HQOS_MAGIC_TAG))) {
++		if (do_ext2ge_fast_learn(state->in, skb)) {
+ 			if (!do_hnat_ext_to_ge2(skb, __func__))
+ 				return NF_STOLEN;
+ 			goto drop;
+@@ -1050,6 +1058,7 @@ mtk_hnat_br_nf_local_in(void *priv, struct sk_buff *skb,
+ 
+ 		/* packets form ge -> external device */
+ 		if (do_ge2ext_fast(state->in, skb)) {
++ge2ext:
+ 			if (!do_hnat_ge_to_ext(skb, __func__))
+ 				return NF_STOLEN;
+ 			goto drop;
+@@ -1884,7 +1893,8 @@ static unsigned int skb_to_hnat_info(struct sk_buff *skb,
+ 				      ((mape_toggle && mape == 1) && !FROM_EXT(skb))) &&
+ 				      (!whnat)) {
+ 					entry.ipv4_hnapt.etype = htons(HQOS_MAGIC_TAG);
+-					entry.ipv4_hnapt.vlan1 = skb_hnat_entry(skb);
++					entry.ipv4_hnapt.vlan1 = ntohs(skb_hnat_entry(skb));
++					entry.bfib1.vpm = 0;
+ 					entry.bfib1.vlan_layer = 1;
+ 				}
+ 			}
+@@ -1931,7 +1941,8 @@ static unsigned int skb_to_hnat_info(struct sk_buff *skb,
+ 				    FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb)) &&
+ 				    (!whnat)) {
+ 					entry.ipv6_5t_route.etype = htons(HQOS_MAGIC_TAG);
+-					entry.ipv6_5t_route.vlan1 = skb_hnat_entry(skb);
++					entry.ipv6_5t_route.vlan1 = ntohs(skb_hnat_entry(skb));
++					entry.bfib1.vpm = 0;
+ 					entry.bfib1.vlan_layer = 1;
+ 				}
+ 			}
+@@ -2141,7 +2152,7 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
+ 				bfib1_tx.vpm = 0;
+ 				bfib1_tx.vlan_layer = 1;
+ 				entry->ipv4_hnapt.etype = htons(HQOS_MAGIC_TAG);
+-				entry->ipv4_hnapt.vlan1 = skb_hnat_entry(skb);
++				entry->ipv4_hnapt.vlan1 = ntohs(skb_hnat_entry(skb));
+ 				entry->ipv4_hnapt.iblk2.fqos = 1;
+ 			}
+ 		}
+@@ -2220,7 +2231,7 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
+ 				bfib1_tx.vpm = 0;
+ 				bfib1_tx.vlan_layer = 1;
+ 				entry->ipv6_5t_route.etype = htons(HQOS_MAGIC_TAG);
+-				entry->ipv6_5t_route.vlan1 = skb_hnat_entry(skb);
++				entry->ipv6_5t_route.vlan1 = ntohs(skb_hnat_entry(skb));
+ 				entry->ipv6_5t_route.iblk2.fqos = 1;
+ 			}
+ 		}
+@@ -2928,25 +2939,31 @@ static unsigned int
+ mtk_pong_hqos_handler(void *priv, struct sk_buff *skb,
+ 		      const struct nf_hook_state *state)
+ {
+-	struct vlan_ethhdr *veth;
++	//struct vlan_ethhdr *veth;
++	__be16 vlan_proto = skb->vlan_proto;
+ 
+ 	if (!skb)
+ 		goto drop;
+ 
+-	veth = (struct vlan_ethhdr *)skb_mac_header(skb);
++	//veth = (struct vlan_ethhdr *)skb_mac_header(skb);
+ 
+ 	//if (qos_toggle && eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-	if (IS_HQOS_MODE && eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-		skb_hnat_entry(skb) = ntohs(veth->h_vlan_TCI) & 0x3fff;
++	//if (IS_HQOS_MODE && vlan_proto == HQOS_MAGIC_TAG) {
++	if (vlan_proto == HQOS_MAGIC_TAG) {
++		skb_hnat_entry(skb) = skb->vlan_tci & 0x3fff;
+ 		skb_hnat_reason(skb) = HIT_BIND_FORCE_TO_CPU;
++		skb->vlan_proto = 0;
++		skb->vlan_tci = 0;
++		goto ge2ext;
+ 	}
+ 
+ 	if (skb_hnat_iface(skb) == FOE_MAGIC_EXT)
+ 		clr_from_extge(skb);
+ 
+ 	/* packets from external devices -> xxx ,step 2, learning stage */
+-	if (do_ext2ge_fast_learn(state->in, skb) && (!qos_toggle ||
+-	    (qos_toggle && eth_hdr(skb)->h_proto != HQOS_MAGIC_TAG))) {
++	//if (do_ext2ge_fast_learn(state->in, skb) && (!qos_toggle ||
++	//    (qos_toggle && vlan_proto != HQOS_MAGIC_TAG))) {
++	if (do_ext2ge_fast_learn(state->in, skb)) {
+ 		if (!do_hnat_ext_to_ge2(skb, __func__))
+ 			return NF_STOLEN;
+ 		goto drop;
+@@ -2954,6 +2971,7 @@ mtk_pong_hqos_handler(void *priv, struct sk_buff *skb,
+ 
+ 	/* packets form ge -> external device */
+ 	if (do_ge2ext_fast(state->in, skb)) {
++ge2ext:
+ 		if (!do_hnat_ge_to_ext(skb, __func__))
+ 			return NF_STOLEN;
+ 		goto drop;
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h
+index 3d7448e6..bfd803b9 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h
+@@ -87,7 +87,7 @@ struct hnat_desc {
+ #endif
+ 
+ #define HQOS_MAGIC_TAG 0x5678
+-#define HAS_HQOS_MAGIC_TAG(skb) (qos_toggle && skb->protocol == HQOS_MAGIC_TAG)
++#define HAS_HQOS_MAGIC_TAG(skb) (qos_toggle && vlan_proto == HQOS_MAGIC_TAG)
+ 
+ #define HNAT_MAGIC_TAG 0x6789
+ #define HNAT_INFO_FILLED 0x7
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_nf_hook.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_nf_hook.c
+index 91708cf3..dcd84969 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_nf_hook.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat_nf_hook.c
+@@ -518,8 +518,9 @@ unsigned int do_hnat_ge_to_ext(struct sk_buff *skb, const char *func)
+ 	skb->dev = dev;
+ 
+ 	//if (qos_toggle && eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-	if (IS_HQOS_MODE && eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-		skb = skb_unshare(skb, GFP_ATOMIC);
++	/*if (IS_HQOS_MODE && skb->vlan_proto == HQOS_MAGIC_TAG) {
++		//skb = skb_unshare(skb, GFP_ATOMIC);
++		skb = skb_share_check(skb, GFP_ATOMIC);
+ 		if (!skb)
+ 			return NF_ACCEPT;
+ 
+@@ -527,10 +528,11 @@ unsigned int do_hnat_ge_to_ext(struct sk_buff *skb, const char *func)
+ 			return NF_ACCEPT;
+ 
+ 		skb_pull_rcsum(skb, VLAN_HLEN);
++		//vlan_set_encap_proto(skb, (struct vlan_hdr *)skb->data);
+ 
+ 		memmove(skb->data - ETH_HLEN, skb->data - ETH_HLEN - VLAN_HLEN,
+ 			2 * ETH_ALEN);
+-	}
++	}*/
+ 
+ 	if (skb->dev) {
+ 		skb_set_network_header(skb, 0);
+@@ -992,22 +994,27 @@ static unsigned int
+ mtk_hnat_br_nf_local_in(void *priv, struct sk_buff *skb,
+ 			const struct nf_hook_state *state)
+ {
+-	struct vlan_ethhdr *veth;
++	//struct vlan_ethhdr *veth;
++	__be16 vlan_proto = skb->vlan_proto;
+ 
+ 	if (!skb)
+ 		goto drop;
+ 
+ 	//if (qos_toggle && hnat_priv->data->whnat) {
+-	if (IS_HQOS_MODE && hnat_priv->data->whnat) {
+-		veth = (struct vlan_ethhdr *)skb_mac_header(skb);
++	//if (IS_HQOS_MODE && hnat_priv->data->whnat) {
++		//veth = (struct vlan_ethhdr *)skb_mac_header(skb);
+ 
+-		if (eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-			skb_hnat_entry(skb) = ntohs(veth->h_vlan_TCI) & 0x3fff;
++		if (vlan_proto == HQOS_MAGIC_TAG) {
++			skb_hnat_entry(skb) = skb->vlan_tci & 0x3fff;
+ 			skb_hnat_reason(skb) = HIT_BIND_FORCE_TO_CPU;
++			skb->vlan_proto = 0;
++			skb->vlan_tci = 0;
++			goto ge2ext;
+ 		}
+-	}
++	//}
+ 
+-	if (!HAS_HQOS_MAGIC_TAG(skb) && !is_ppe_support_type(skb)) {
++	//if (!HAS_HQOS_MAGIC_TAG(skb) && !is_ppe_support_type(skb)) {
++	if (!is_ppe_support_type(skb)) {
+ 		hnat_set_head_frags(state, skb, 1, hnat_set_alg);
+ 		return NF_ACCEPT;
+ 	}
+@@ -1041,8 +1048,9 @@ mtk_hnat_br_nf_local_in(void *priv, struct sk_buff *skb,
+ 			clr_from_extge(skb);
+ 
+ 		/* packets from external devices -> xxx ,step 2, learning stage */
+-		if (do_ext2ge_fast_learn(state->in, skb) && (!qos_toggle ||
+-		    (qos_toggle && eth_hdr(skb)->h_proto != HQOS_MAGIC_TAG))) {
++		//if (do_ext2ge_fast_learn(state->in, skb) && (!qos_toggle ||
++		//    (qos_toggle && vlan_proto != HQOS_MAGIC_TAG))) {
++		if (do_ext2ge_fast_learn(state->in, skb)) {
+ 			if (!do_hnat_ext_to_ge2(skb, __func__))
+ 				return NF_STOLEN;
+ 			goto drop;
+@@ -1050,6 +1058,7 @@ mtk_hnat_br_nf_local_in(void *priv, struct sk_buff *skb,
+ 
+ 		/* packets form ge -> external device */
+ 		if (do_ge2ext_fast(state->in, skb)) {
++ge2ext:
+ 			if (!do_hnat_ge_to_ext(skb, __func__))
+ 				return NF_STOLEN;
+ 			goto drop;
+@@ -1884,7 +1893,8 @@ static unsigned int skb_to_hnat_info(struct sk_buff *skb,
+ 				      ((mape_toggle && mape == 1) && !FROM_EXT(skb))) &&
+ 				      (!whnat)) {
+ 					entry.ipv4_hnapt.etype = htons(HQOS_MAGIC_TAG);
+-					entry.ipv4_hnapt.vlan1 = skb_hnat_entry(skb);
++					entry.ipv4_hnapt.vlan1 = ntohs(skb_hnat_entry(skb));
++					entry.bfib1.vpm = 0;
+ 					entry.bfib1.vlan_layer = 1;
+ 				}
+ 			}
+@@ -1931,7 +1941,8 @@ static unsigned int skb_to_hnat_info(struct sk_buff *skb,
+ 				    FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb)) &&
+ 				    (!whnat)) {
+ 					entry.ipv6_5t_route.etype = htons(HQOS_MAGIC_TAG);
+-					entry.ipv6_5t_route.vlan1 = skb_hnat_entry(skb);
++					entry.ipv6_5t_route.vlan1 = ntohs(skb_hnat_entry(skb));
++					entry.bfib1.vpm = 0;
+ 					entry.bfib1.vlan_layer = 1;
+ 				}
+ 			}
+@@ -2141,7 +2152,7 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
+ 				bfib1_tx.vpm = 0;
+ 				bfib1_tx.vlan_layer = 1;
+ 				entry->ipv4_hnapt.etype = htons(HQOS_MAGIC_TAG);
+-				entry->ipv4_hnapt.vlan1 = skb_hnat_entry(skb);
++				entry->ipv4_hnapt.vlan1 = ntohs(skb_hnat_entry(skb));
+ 				entry->ipv4_hnapt.iblk2.fqos = 1;
+ 			}
+ 		}
+@@ -2220,7 +2231,7 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
+ 				bfib1_tx.vpm = 0;
+ 				bfib1_tx.vlan_layer = 1;
+ 				entry->ipv6_5t_route.etype = htons(HQOS_MAGIC_TAG);
+-				entry->ipv6_5t_route.vlan1 = skb_hnat_entry(skb);
++				entry->ipv6_5t_route.vlan1 = ntohs(skb_hnat_entry(skb));
+ 				entry->ipv6_5t_route.iblk2.fqos = 1;
+ 			}
+ 		}
+@@ -2928,25 +2939,31 @@ static unsigned int
+ mtk_pong_hqos_handler(void *priv, struct sk_buff *skb,
+ 		      const struct nf_hook_state *state)
+ {
+-	struct vlan_ethhdr *veth;
++	//struct vlan_ethhdr *veth;
++	__be16 vlan_proto = skb->vlan_proto;
+ 
+ 	if (!skb)
+ 		goto drop;
+ 
+-	veth = (struct vlan_ethhdr *)skb_mac_header(skb);
++	//veth = (struct vlan_ethhdr *)skb_mac_header(skb);
+ 
+ 	//if (qos_toggle && eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-	if (IS_HQOS_MODE && eth_hdr(skb)->h_proto == HQOS_MAGIC_TAG) {
+-		skb_hnat_entry(skb) = ntohs(veth->h_vlan_TCI) & 0x3fff;
++	//if (IS_HQOS_MODE && vlan_proto == HQOS_MAGIC_TAG) {
++	if (vlan_proto == HQOS_MAGIC_TAG) {
++		skb_hnat_entry(skb) = skb->vlan_tci & 0x3fff;
+ 		skb_hnat_reason(skb) = HIT_BIND_FORCE_TO_CPU;
++		skb->vlan_proto = 0;
++		skb->vlan_tci = 0;
++		goto ge2ext;
+ 	}
+ 
+ 	if (skb_hnat_iface(skb) == FOE_MAGIC_EXT)
+ 		clr_from_extge(skb);
+ 
+ 	/* packets from external devices -> xxx ,step 2, learning stage */
+-	if (do_ext2ge_fast_learn(state->in, skb) && (!qos_toggle ||
+-	    (qos_toggle && eth_hdr(skb)->h_proto != HQOS_MAGIC_TAG))) {
++	//if (do_ext2ge_fast_learn(state->in, skb) && (!qos_toggle ||
++	//    (qos_toggle && vlan_proto != HQOS_MAGIC_TAG))) {
++	if (do_ext2ge_fast_learn(state->in, skb)) {
+ 		if (!do_hnat_ext_to_ge2(skb, __func__))
+ 			return NF_STOLEN;
+ 		goto drop;
+@@ -2954,6 +2971,7 @@ mtk_pong_hqos_handler(void *priv, struct sk_buff *skb,
+ 
+ 	/* packets form ge -> external device */
+ 	if (do_ge2ext_fast(state->in, skb)) {
++ge2ext:
+ 		if (!do_hnat_ge_to_ext(skb, __func__))
+ 			return NF_STOLEN;
+ 		goto drop;
+diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h
+index 3d7448e6..bfd803b9 100644
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h
+@@ -87,7 +87,7 @@ struct hnat_desc {
+ #endif
+ 
+ #define HQOS_MAGIC_TAG 0x5678
+-#define HAS_HQOS_MAGIC_TAG(skb) (qos_toggle && skb->protocol == HQOS_MAGIC_TAG)
++#define HAS_HQOS_MAGIC_TAG(skb) (qos_toggle && vlan_proto == HQOS_MAGIC_TAG)
+ 
+ #define HNAT_MAGIC_TAG 0x6789
+ #define HNAT_INFO_FILLED 0x7
+diff --git a/trunk/linux-4.4.x/net/8021q/vlan.c b/trunk/linux-4.4.x/net/8021q/vlan.c
+index e2713b07..368cb5ee 100644
+--- a/trunk/linux-4.4.x/net/8021q/vlan.c
++++ b/trunk/linux-4.4.x/net/8021q/vlan.c
+@@ -654,7 +654,10 @@ static struct sk_buff **vlan_gro_receive(struct sk_buff **head,
+ 			continue;
+ 
+ 		vhdr2 = (struct vlan_hdr *)(p->data + off_vlan);
+-		if (compare_vlan_header(vhdr, vhdr2))
++		if (compare_vlan_header(vhdr, vhdr2))
++		/*TODO:if (skb->protocol == 0x5678 ?
++		    type == vhdr2->h_vlan_encapsulated_proto :
++		    compare_vlan_header(vhdr, vhdr2))*/
+ 			NAPI_GRO_CB(p)->same_flow = 0;
+ 	}
+ 
+@@ -703,6 +706,14 @@ static struct packet_offload vlan_packet_offloads[] __read_mostly = {
+ 			.gro_complete = vlan_gro_complete,
+ 		},
+ 	},
++	{
++		.type = 0x5678,
++		.priority = 10,
++		.callbacks = {
++			.gro_receive = vlan_gro_receive,
++			.gro_complete = vlan_gro_complete,
++		},
++	},
+ };
+ 
+ static int __net_init vlan_init_net(struct net *net)
+diff --git a/trunk/linux-4.4.x/net/8021q/vlan_core.c b/trunk/linux-4.4.x/net/8021q/vlan_core.c
+index e2ed6985..55095f9e 100644
+--- a/trunk/linux-4.4.x/net/8021q/vlan_core.c
++++ b/trunk/linux-4.4.x/net/8021q/vlan_core.c
+@@ -13,9 +13,14 @@ bool vlan_do_receive(struct sk_buff **skbp)
+ 	struct net_device *vlan_dev;
+ 	struct vlan_pcpu_stats *rx_stats;
+ 
+-	vlan_dev = vlan_find_dev(skb->dev, vlan_proto, vlan_id);
+-	if (!vlan_dev)
++	if (vlan_proto == 0x5678 ||
++	    !(vlan_dev = vlan_find_dev(skb->dev, vlan_proto, vlan_id))) {
++		// VLAN1
++		vlan_dev = vlan_find_dev(skb->dev, htons(ETH_P_8021Q), 1);
++		if (vlan_dev)
++			skb->dev = vlan_dev;
+ 		return false;
++	}
+ 
+ 	skb = *skbp = skb_share_check(skb, GFP_ATOMIC);
+ 	if (unlikely(!skb))
+diff --git a/trunk/linux-4.4.x/net/core/dev.c b/trunk/linux-4.4.x/net/core/dev.c
+index 221c4207..7d6e239b 100644
+--- a/trunk/linux-4.4.x/net/core/dev.c
++++ b/trunk/linux-4.4.x/net/core/dev.c
+@@ -3891,6 +3891,7 @@ static bool skb_pfmemalloc_protocol(struct sk_buff *skb)
+ 	case htons(ETH_P_IPV6):
+ 	case htons(ETH_P_8021Q):
+ 	case htons(ETH_P_8021AD):
++	case 0x5678:
+ 		return true;
+ 	default:
+ 		return false;
+@@ -3921,6 +3922,7 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
+ 	bool deliver_exact = false;
+ 	int ret = NET_RX_DROP;
+ 	__be16 type;
++	u16 vlan_tci;
+ #ifdef CONFIG_SHORTCUT_FE
+ 	int (*fast_recv)(struct sk_buff *skb);
+ #endif
+@@ -3943,6 +3945,16 @@ another_round:
+ 
+ 	__this_cpu_inc(softnet_data.processed);
+ 
++	if (skb->protocol == 0x5678) {
++		// untag
++		vlan_tci = ((struct vlan_hdr *)skb->data)->h_vlan_TCI;
++		skb = skb_vlan_untag(skb);
++		if (unlikely(!skb))
++			goto out;
++		// update vlan_tci
++		//skb->vlan_proto = 0x5678;
++		skb->vlan_tci = vlan_tci;
++	} else
+ 	if (skb->protocol == cpu_to_be16(ETH_P_8021Q) ||
+ 	    skb->protocol == cpu_to_be16(ETH_P_8021AD)) {
+ 		skb = skb_vlan_untag(skb);
+@@ -3998,7 +4010,8 @@ ncls:
+ 	if (pfmemalloc && !skb_pfmemalloc_protocol(skb))
+ 		goto drop;
+ 
+-	if (skb_vlan_tag_present(skb)) {
++	if (skb->vlan_proto == 0x5678 ||
++	    skb_vlan_tag_present(skb)) {
+ 		if (pt_prev) {
+ 			ret = deliver_skb(skb, pt_prev, orig_dev);
+ 			pt_prev = NULL;
+@@ -4030,6 +4043,10 @@ ncls:
+ 		}
+ 	}
+ 
++	if (unlikely(skb->vlan_proto == 0x5678)) {
++		skb->vlan_proto = 0;
++		skb->vlan_tci = 0;
++	} else
+ 	if (unlikely(skb_vlan_tag_present(skb))) {
+ 		if (skb_vlan_tag_get_id(skb))
+ 			skb->pkt_type = PACKET_OTHERHOST;
+-- 
+2.32.0.windows.2
+
