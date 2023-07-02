@@ -178,12 +178,12 @@ index af01600d..91708cf3 100644
 -		if ((hnat_priv->data->version != MTK_HNAT_V2) && IS_GMAC1_MODE) {*/
 -	} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
 -		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {
-+	} else if (IS_EXT(dev)) {
-+		/*FIXME:if ((hnat_priv->data->version != MTK_HNAT_V1_1 &&
++	/*FIXME:} else if (IS_EXT(dev)) {
++		if ((hnat_priv->data->version != MTK_HNAT_V1_1 &&
 +		     hnat_priv->data->version != MTK_HNAT_V1_2) &&
 +		    IS_GMAC1_MODE) {*/
-+	/*} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
-+		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {*/
++	} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
++		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {
  		if (!hnat_priv->data->whnat && IS_GMAC1_MODE) {
  			entry.bfib1.vpm = 1;
  			entry.bfib1.vlan_layer = 1;
@@ -290,9 +290,10 @@ index 6bb66858..3d7448e6 100644
  #define HNAT_INFO_FILLED 0x7
 -//FIXME:#define WIFI_INFO_LEN 3
 -#define WIFI_INFO_LEN 6
-+#define WIFI_INFO_LEN 3
+-#define FOE_INFO_LEN (10 + WIFI_INFO_LEN)
++#define WIFI_INFO_LEN 0
 +//TODO:#define WIFI_INFO_LEN 6
- #define FOE_INFO_LEN (10 + WIFI_INFO_LEN)
++#define FOE_INFO_LEN (6 + WIFI_INFO_LEN)
  #define IS_SPACE_AVAILABLE_HEAD(skb)                                           \
  	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
 diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_hnat/hnat.c
@@ -457,12 +458,12 @@ index af01600d..91708cf3 100644
 -		if ((hnat_priv->data->version != MTK_HNAT_V2) && IS_GMAC1_MODE) {*/
 -	} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
 -		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {
-+	} else if (IS_EXT(dev)) {
-+		/*FIXME:if ((hnat_priv->data->version != MTK_HNAT_V1_1 &&
++	/*FIXME:} else if (IS_EXT(dev)) {
++		if ((hnat_priv->data->version != MTK_HNAT_V1_1 &&
 +		     hnat_priv->data->version != MTK_HNAT_V1_2) &&
 +		    IS_GMAC1_MODE) {*/
-+	/*} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
-+		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {*/
++	} else if (IS_EXT(dev) && (FROM_GE_PPD(skb) || FROM_GE_LAN_GRP(skb) ||
++		   FROM_GE_WAN(skb) || FROM_GE_VIRTUAL(skb) || FROM_WED(skb))) {
  		if (!hnat_priv->data->whnat && IS_GMAC1_MODE) {
  			entry.bfib1.vpm = 1;
  			entry.bfib1.vlan_layer = 1;
@@ -569,9 +570,10 @@ index 6bb66858..3d7448e6 100644
  #define HNAT_INFO_FILLED 0x7
 -//FIXME:#define WIFI_INFO_LEN 3
 -#define WIFI_INFO_LEN 6
-+#define WIFI_INFO_LEN 3
+-#define FOE_INFO_LEN (10 + WIFI_INFO_LEN)
++#define WIFI_INFO_LEN 0
 +//TODO:#define WIFI_INFO_LEN 6
- #define FOE_INFO_LEN (10 + WIFI_INFO_LEN)
++#define FOE_INFO_LEN (6 + WIFI_INFO_LEN)
  #define IS_SPACE_AVAILABLE_HEAD(skb)                                           \
  	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
 -- 

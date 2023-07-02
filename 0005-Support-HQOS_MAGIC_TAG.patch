@@ -1,7 +1,7 @@
-From bdd3686f42c799f6a51816048df915e8cf4e87a4 Mon Sep 17 00:00:00 2001
+From 4b4bf23140eb44e76631a99d435e5d081b00f543 Mon Sep 17 00:00:00 2001
 From: lyh802 <lyh802@126.com>
 Date: Tue, 20 Jun 2023 17:55:46 +0800
-Subject: [PATCH 5/5] Support HQOS_MAGIC_TAG
+Subject: [PATCH] Support HQOS_MAGIC_TAG
 
 ---
  .../ethernet/mediatek/mtk_hnat/hnat_nf_hook.c | 62 ++++++++++++-------
@@ -9,9 +9,9 @@ Subject: [PATCH 5/5] Support HQOS_MAGIC_TAG
  .../ethernet/raeth/mtk_hnat/hnat_nf_hook.c    | 62 ++++++++++++-------
  .../net/ethernet/raeth/mtk_hnat/nf_hnat_mtk.h |  2 +-
  trunk/linux-4.4.x/net/8021q/vlan.c            | 13 +++-
- trunk/linux-4.4.x/net/8021q/vlan_core.c       |  9 ++-
- trunk/linux-4.4.x/net/core/dev.c              | 19 +++++-
- 7 files changed, 119 insertions(+), 50 deletions(-)
+ trunk/linux-4.4.x/net/8021q/vlan_core.c       | 10 +++
+ trunk/linux-4.4.x/net/core/dev.c              | 26 ++++++++
+ 7 files changed, 130 insertions(+), 47 deletions(-)
 
 diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c b/trunk/linux-4.4.x/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
 index 91708cf3..dcd84969 100644
@@ -376,7 +376,7 @@ index 3d7448e6..bfd803b9 100644
  #define HNAT_MAGIC_TAG 0x6789
  #define HNAT_INFO_FILLED 0x7
 diff --git a/trunk/linux-4.4.x/net/8021q/vlan.c b/trunk/linux-4.4.x/net/8021q/vlan.c
-index e2713b07..368cb5ee 100644
+index e2713b07..52dff2e6 100644
 --- a/trunk/linux-4.4.x/net/8021q/vlan.c
 +++ b/trunk/linux-4.4.x/net/8021q/vlan.c
 @@ -654,7 +654,10 @@ static struct sk_buff **vlan_gro_receive(struct sk_buff **head,
@@ -386,71 +386,76 @@ index e2713b07..368cb5ee 100644
 -		if (compare_vlan_header(vhdr, vhdr2))
 +		if (compare_vlan_header(vhdr, vhdr2))
 +		/*TODO:if (skb->protocol == 0x5678 ?
-+		    type == vhdr2->h_vlan_encapsulated_proto :
++		    type != vhdr2->h_vlan_encapsulated_proto :
 +		    compare_vlan_header(vhdr, vhdr2))*/
  			NAPI_GRO_CB(p)->same_flow = 0;
  	}
  
-@@ -703,6 +706,14 @@ static struct packet_offload vlan_packet_offloads[] __read_mostly = {
- 			.gro_complete = vlan_gro_complete,
- 		},
- 	},
-+	{
+@@ -687,6 +690,14 @@ static int vlan_gro_complete(struct sk_buff *skb, int nhoff)
+ }
+ 
+ static struct packet_offload vlan_packet_offloads[] __read_mostly = {
++	/*{
 +		.type = 0x5678,
 +		.priority = 10,
 +		.callbacks = {
 +			.gro_receive = vlan_gro_receive,
 +			.gro_complete = vlan_gro_complete,
 +		},
-+	},
- };
- 
- static int __net_init vlan_init_net(struct net *net)
++	},*/
+ 	{
+ 		.type = cpu_to_be16(ETH_P_8021Q),
+ 		.priority = 10,
 diff --git a/trunk/linux-4.4.x/net/8021q/vlan_core.c b/trunk/linux-4.4.x/net/8021q/vlan_core.c
-index e2ed6985..55095f9e 100644
+index e2ed6985..5ce6aa33 100644
 --- a/trunk/linux-4.4.x/net/8021q/vlan_core.c
 +++ b/trunk/linux-4.4.x/net/8021q/vlan_core.c
-@@ -13,9 +13,14 @@ bool vlan_do_receive(struct sk_buff **skbp)
+@@ -13,6 +13,16 @@ bool vlan_do_receive(struct sk_buff **skbp)
  	struct net_device *vlan_dev;
  	struct vlan_pcpu_stats *rx_stats;
  
--	vlan_dev = vlan_find_dev(skb->dev, vlan_proto, vlan_id);
--	if (!vlan_dev)
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
 +	if (vlan_proto == 0x5678 ||
-+	    !(vlan_dev = vlan_find_dev(skb->dev, vlan_proto, vlan_id))) {
++	    *((__u32 *)&(skb->cb[44])) == 0x78786688) {
 +		// VLAN1
 +		vlan_dev = vlan_find_dev(skb->dev, htons(ETH_P_8021Q), 1);
 +		if (vlan_dev)
 +			skb->dev = vlan_dev;
- 		return false;
++		return false;
 +	}
- 
- 	skb = *skbp = skb_share_check(skb, GFP_ATOMIC);
- 	if (unlikely(!skb))
++#endif
+ 	vlan_dev = vlan_find_dev(skb->dev, vlan_proto, vlan_id);
+ 	if (!vlan_dev)
+ 		return false;
 diff --git a/trunk/linux-4.4.x/net/core/dev.c b/trunk/linux-4.4.x/net/core/dev.c
-index 221c4207..7d6e239b 100644
+index 221c4207..1660078e 100644
 --- a/trunk/linux-4.4.x/net/core/dev.c
 +++ b/trunk/linux-4.4.x/net/core/dev.c
-@@ -3891,6 +3891,7 @@ static bool skb_pfmemalloc_protocol(struct sk_buff *skb)
- 	case htons(ETH_P_IPV6):
- 	case htons(ETH_P_8021Q):
- 	case htons(ETH_P_8021AD):
+@@ -3886,6 +3886,9 @@ EXPORT_SYMBOL_GPL(athrs_fast_nat_recv);
+ static bool skb_pfmemalloc_protocol(struct sk_buff *skb)
+ {
+ 	switch (skb->protocol) {
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
 +	case 0x5678:
- 		return true;
- 	default:
- 		return false;
-@@ -3921,6 +3922,7 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
++#endif
+ 	case htons(ETH_P_ARP):
+ 	case htons(ETH_P_IP):
+ 	case htons(ETH_P_IPV6):
+@@ -3921,6 +3924,9 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
  	bool deliver_exact = false;
  	int ret = NET_RX_DROP;
  	__be16 type;
-+	u16 vlan_tci;
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
++	__be16 vlan_tci;
++#endif
  #ifdef CONFIG_SHORTCUT_FE
  	int (*fast_recv)(struct sk_buff *skb);
  #endif
-@@ -3943,6 +3945,16 @@ another_round:
+@@ -3998,7 +4004,21 @@ ncls:
+ 	if (pfmemalloc && !skb_pfmemalloc_protocol(skb))
+ 		goto drop;
  
- 	__this_cpu_inc(softnet_data.processed);
- 
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
 +	if (skb->protocol == 0x5678) {
 +		// untag
 +		vlan_tci = ((struct vlan_hdr *)skb->data)->h_vlan_TCI;
@@ -460,28 +465,24 @@ index 221c4207..7d6e239b 100644
 +		// update vlan_tci
 +		//skb->vlan_proto = 0x5678;
 +		skb->vlan_tci = vlan_tci;
++		goto vlan;
 +	} else
- 	if (skb->protocol == cpu_to_be16(ETH_P_8021Q) ||
- 	    skb->protocol == cpu_to_be16(ETH_P_8021AD)) {
- 		skb = skb_vlan_untag(skb);
-@@ -3998,7 +4010,8 @@ ncls:
- 	if (pfmemalloc && !skb_pfmemalloc_protocol(skb))
- 		goto drop;
- 
--	if (skb_vlan_tag_present(skb)) {
-+	if (skb->vlan_proto == 0x5678 ||
-+	    skb_vlan_tag_present(skb)) {
++#endif
+ 	if (skb_vlan_tag_present(skb)) {
++vlan:
  		if (pt_prev) {
  			ret = deliver_skb(skb, pt_prev, orig_dev);
  			pt_prev = NULL;
-@@ -4030,6 +4043,10 @@ ncls:
+@@ -4030,6 +4050,12 @@ ncls:
  		}
  	}
  
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
 +	if (unlikely(skb->vlan_proto == 0x5678)) {
 +		skb->vlan_proto = 0;
 +		skb->vlan_tci = 0;
 +	} else
++#endif
  	if (unlikely(skb_vlan_tag_present(skb))) {
  		if (skb_vlan_tag_get_id(skb))
  			skb->pkt_type = PACKET_OTHERHOST;
