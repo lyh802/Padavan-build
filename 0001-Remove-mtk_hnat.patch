@@ -1,7 +1,7 @@
 From 85baea0b7ecdaf72307b8af5948af24fd269467b Mon Sep 17 00:00:00 2001
 From: lyh802 <lyh802@126.com>
 Date: Mon, 3 Jul 2023 22:13:25 +0800
-Subject: [PATCH 1/5] Remove mtk_hnat
+Subject: [PATCH 1/4] Remove mtk_hnat
 
 ---
  .../net/ethernet/mediatek/mtk_hnat/Makefile   |    6 -

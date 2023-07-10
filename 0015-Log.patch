@@ -1,0 +1,91 @@
+diff --git a/trunk/linux-4.4.x/net/core/dev.c b/trunk/linux-4.4.x/net/core/dev.c
+index 221c4207..8caea7b2 100644
+--- a/trunk/linux-4.4.x/net/core/dev.c
++++ b/trunk/linux-4.4.x/net/core/dev.c
+@@ -4065,6 +4065,86 @@ ncls:
+ 	} else {
+ drop:
+ 		atomic_long_inc(&skb->dev->rx_dropped);
++	{
++	struct iphdr *iph;
++	struct ipv6hdr *ip6h;
++	struct tcpudphdr {
++		__be16 src;
++		__be16 dst;
++	} *pptr, _ports;
++	int udp = 0;
++	switch (ntohs(type)) {
++	case ETH_P_IP:
++		iph = ip_hdr(skb);
++		switch (iph->protocol) {
++		case IPPROTO_UDP:
++			udp = 1;
++			/* fallthrough */
++		case IPPROTO_TCP:
++			pptr = skb_header_pointer(skb, iph->ihl * 4,
++						  sizeof(_ports),
++						  &_ports);
++			if (likely(pptr)) {
++				printk(KERN_WARNING
++					"%s:drop (in_dev=%s, udp4=0x%x,\n"
++					"saddr=0x%x, daddr=0x%x,\n"
++					"src=0x%x, dst=0x%x)\n",
++					__func__, skb->dev->name, udp,
++					ntohl(iph->saddr), ntohl(iph->daddr),
++					(unsigned int)ntohs(pptr->src), (unsigned int)ntohs(pptr->dst));
++				break;
++			}
++		default:
++			printk(KERN_WARNING
++				"%s:drop (in_dev=%s, ip4=0x%x,\n"
++				"saddr=0x%x, daddr=0x%x,\n"
++				"src=0x%x, dst=0x%x)\n",
++				__func__, skb->dev->name, iph->protocol,
++				ntohl(iph->saddr), ntohl(iph->daddr));
++			break;
++		}
++		break;
++	case ETH_P_IPV6:
++		ip6h = ipv6_hdr(skb);
++		switch (ip6h->nexthdr) {
++		case NEXTHDR_UDP:
++			udp = 1;
++			/* fallthrough */
++		case NEXTHDR_TCP: /* IPv6-5T or IPv6-3T */
++			pptr = skb_header_pointer(skb, 40,
++						  sizeof(_ports),
++						  &_ports);
++			if (likely(pptr)) {
++				printk(KERN_WARNING
++					"%s:drop (in_dev=%s, udp6=0x%x,\n"
++					"saddr=0x%x, daddr=0x%x,\n"
++					"saddr=0x%x, daddr=0x%x,\n"
++					"src=0x%x, dst=0x%x)\n",
++					__func__, skb->dev->name, udp,
++					ntohl(ip6h->saddr.s6_addr32[0]), ntohl(ip6h->daddr.s6_addr32[0]),
++					ntohl(ip6h->saddr.s6_addr32[3]), ntohl(ip6h->daddr.s6_addr32[3]),
++					(unsigned int)ntohs(pptr->src), (unsigned int)ntohs(pptr->dst));
++				break;
++			}
++		default:
++			printk(KERN_WARNING
++				"%s:drop (in_dev=%s, ip6=0x%x,\n"
++				"saddr=0x%x, daddr=0x%x,\n"
++				"saddr=0x%x, daddr=0x%x,\n"
++				"src=0x%x, dst=0x%x)\n",
++				__func__, skb->dev->name, ip6h->nexthdr,
++				ntohl(ip6h->saddr.s6_addr32[0]), ntohl(ip6h->daddr.s6_addr32[0]),
++				ntohl(ip6h->saddr.s6_addr32[3]), ntohl(ip6h->daddr.s6_addr32[3]));
++			break;
++		}
++		break;
++	default:
++		printk(KERN_WARNING
++			"%s:drop (in_dev=%s, eth=0x%x)\n",
++			__func__, skb->dev->name, (unsigned int)ntohs(type));
++		break;
++	}
++	}
+ 		kfree_skb(skb);
+ 		/* Jamal, now you will not able to escape explaining
+ 		 * me how you were going to use this. :-)

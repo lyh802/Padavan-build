@@ -1,4 +1,4 @@
-From 398671fc7874508e7d840c84dae9554d1b5c7e0c Mon Sep 17 00:00:00 2001
+From bb4e7089661d6aaa5b8c5a03bcbf4e3e30979023 Mon Sep 17 00:00:00 2001
 From: lyh802 <lyh802@126.com>
 Date: Mon, 3 Jul 2023 22:09:09 +0800
 Subject: [PATCH] Fix hw_nat
@@ -13,23 +13,24 @@ Subject: [PATCH] Fix hw_nat
  .../net/ethernet/raeth/mtk_esw/ioctl_mt762x.h |  236 +++
  .../drivers/net/ethernet/raeth/mtk_eth_soc.h  |  883 ++++++++
  .../drivers/net/ethernet/raeth/ra_dbg_proc.c  |    2 +
- .../drivers/net/ethernet/raeth/ra_switch.c    |   25 +-
+ .../drivers/net/ethernet/raeth/ra_switch.c    |   24 +-
  .../drivers/net/ethernet/raeth/ra_switch.h    |    2 +
  .../drivers/net/ethernet/raeth/raeth_config.h |   11 +-
  .../drivers/net/ethernet/raeth/raeth_reg.h    |    3 +
- .../drivers/net/ethernet/raeth/raether.c      |   71 +-
- .../drivers/net/ethernet/raeth/raether.h      |   10 +-
- .../drivers/net/ethernet/raeth/raether_pdma.c |   17 +
- .../drivers/net/ethernet/raeth/raether_qdma.c |   23 +-
+ .../drivers/net/ethernet/raeth/raether.c      |  125 +-
+ .../drivers/net/ethernet/raeth/raether.h      |   13 +-
+ .../drivers/net/ethernet/raeth/raether_pdma.c |   27 +
+ .../drivers/net/ethernet/raeth/raether_qdma.c |   31 +-
  .../net/ethernet/raeth/rtl8367c/rtk_hal.c     |    5 +-
- trunk/linux-4.4.x/include/net/ra_nat.h        |  113 +-
- trunk/linux-4.4.x/net/core/skbuff.c           |   19 +-
+ trunk/linux-4.4.x/include/net/ra_nat.h        |   37 +-
+ trunk/linux-4.4.x/net/core/skbuff.c           |   16 +-
+ trunk/linux-4.4.x/net/ipv4/ip_output.c        |    3 +
+ trunk/linux-4.4.x/net/nat/foe_hook/hook.c     |   31 +
  trunk/linux-4.4.x/net/nat/hw_nat/foe_fdb.c    |    1 +
  .../linux-4.4.x/net/nat/hw_nat/hwnat_ioctl.c  |    6 +-
  trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.c     |   49 +-
- trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h     |   49 +-
- .../net/netfilter/nf_conntrack_proto_tcp.c    |    2 +-
- 25 files changed, 3805 insertions(+), 88 deletions(-)
+ trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h     |   67 +-
+ 26 files changed, 3851 insertions(+), 87 deletions(-)
  create mode 100644 trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_esw/esw_common.h
  create mode 100644 trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_esw/ioctl.c
  create mode 100644 trunk/linux-4.4.x/drivers/net/ethernet/raeth/mtk_esw/ioctl.h
@@ -3605,7 +3606,7 @@ index 705441f1..e1323b50 100644
  
  void embedded_sw_cnt_read(struct seq_file *seq)
 diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/ra_switch.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/ra_switch.c
-index 4e48245d..71084bd0 100644
+index 4e48245d..47189a19 100644
 --- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/ra_switch.c
 +++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/ra_switch.c
 @@ -2791,6 +2791,7 @@ void trgmii_set_7530(void)
@@ -3693,7 +3694,7 @@ index 4e48245d..71084bd0 100644
  
  	if (ei_local->architecture & MT7622_EPHY) {
  		mt7622_ephy_cal();
-@@ -3939,16 +3951,17 @@ void fe_sw_deinit(struct END_DEVICE *ei_local)
+@@ -3939,16 +3951,22 @@ void fe_sw_deinit(struct END_DEVICE *ei_local)
  	}
  }
  
@@ -3706,17 +3707,19 @@ index 4e48245d..71084bd0 100644
  
  	mii_mgr_read(31, (0x3008 + (port_no * 0x100)), &reg_val);
 -	if (reg_val & 0x1)
--		pr_info("ESW: Link Status Changed - Port%d Link UP\n", port_no);
--	else
--		pr_info("ESW: Link Status Changed - Port%d Link Down\n",
++	if (reg_val & 0x1)
+ 		pr_info("ESW: Link Status Changed - Port%d Link UP\n", port_no);
+ 	else
+ 		pr_info("ESW: Link Status Changed - Port%d Link Down\n",
 -			port_no);
++			port_no);
 +
 +	if (esw_link_status_hook)
 +		esw_link_status_hook(port_no, reg_val & 0x1);
  }
  
  irqreturn_t gsw_interrupt(int irq, void *resv)
-@@ -4140,6 +4153,7 @@ irqreturn_t esw_interrupt(int irq, void *resv)
+@@ -4140,6 +4158,7 @@ irqreturn_t esw_interrupt(int irq, void *resv)
  
  void sw_ioctl(struct ra_switch_ioctl_data *ioctl_data)
  {
@@ -3724,7 +3727,7 @@ index 4e48245d..71084bd0 100644
  	unsigned int cmd;
  
  	cmd = ioctl_data->cmd;
-@@ -4286,6 +4300,7 @@ void sw_ioctl(struct ra_switch_ioctl_data *ioctl_data)
+@@ -4286,6 +4305,7 @@ void sw_ioctl(struct ra_switch_ioctl_data *ioctl_data)
  	default:
  		break;
  	}
@@ -3804,20 +3807,10 @@ index 8078ccfd..2ccae3a8 100644
  #define RX_COHERENT      BIT(31)
  #define RX_DLY_INT       BIT(30)
 diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
-index 78d18004..d9173600 100644
+index 78d18004..87a26daf 100644
 --- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
 +++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
-@@ -18,6 +18,9 @@
- #include "ra_switch.h"
- #include "raether_hwlro.h"
- #include "ra_ethtool.h"
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+#include "mtk_hnat/nf_hnat_mtk.h"
-+#endif
- 
- void __iomem *ethdma_sysctl_base;
- #if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
-@@ -70,27 +73,30 @@ static const char *const mtk_clks_source_name[] = {
+@@ -70,27 +70,30 @@ static const char *const mtk_clks_source_name[] = {
  /* reset frame engine */
  static void fe_reset(void)
  {
@@ -3860,36 +3853,123 @@ index 78d18004..d9173600 100644
  }
  
  /* Set the hardware MAC address. */
-@@ -301,6 +307,20 @@ static int rt2880_eth_recv(struct net_device *dev,
- 		else
- 			rx_skb->ip_summed = CHECKSUM_NONE;
+@@ -279,28 +282,43 @@ static int rt2880_eth_recv(struct net_device *dev,
+ 		/* skb processing */
+ 		skb_put(rx_skb, length);
  
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+	if (rx_ring->rxd_info4.SP == 0 || rx_ring->rxd_info4.SP == 5) {
-+		set_from_extge(rx_skb);
++		/* rx checksum offload */
++		if (rx_ring->rxd_info4.L4VLD)
++			rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
++		else
++			rx_skb->ip_summed = CHECKSUM_NONE;
++
++	if (ei_local->features & FE_HW_VLAN_RX) {
++		if (rx_ring->rxd_info2.TAG)
++			__vlan_hwaccel_put_tag(rx_skb,
++					       htons(ETH_P_8021Q),
++					       rx_ring->rxd_info3.VID);
 +	}
-+	if (IS_SPACE_AVAILABLE_HEAD(rx_skb)) {
-+		*(uint32_t *)skb_hnat_info(rx_skb) =
-+			*(uint32_t *)&rx_ring->rxd_info4;
-+		skb_hnat_alg(rx_skb) = 0;
-+		skb_hnat_magic_tag(rx_skb) = HNAT_MAGIC_TAG;
-+		if (skb_hnat_reason(rx_skb) == HIT_BIND_FORCE_TO_CPU) {
-+			rx_skb->pkt_type = PACKET_HOST;
-+		}
-+	}
-+#else
++
+ 		/* rx packet from GE2 */
+ 		if (rx_ring->rxd_info4.SP == 2) {
+ 			if (likely(ei_local->pseudo_dev)) {
+ 				rx_skb->dev = ei_local->pseudo_dev;
+-				rx_skb->protocol =
+-				    eth_type_trans(rx_skb,
+-						   ei_local->pseudo_dev);
++				//rx_skb->protocol =
++				//    eth_type_trans(rx_skb,
++				//		   ei_local->pseudo_dev);
++				p_ad->stat.rx_packets++;
++				p_ad->stat.rx_bytes += length;
+ 			} else {
+ 				pr_err("pseudo_dev is still not initialize ");
+ 				pr_err("but receive packet from GMAC2\n");
++				rx_skb->dev = dev;
++				dev_kfree_skb_any(rx_skb);
++				ei_local->stat.rx_dropped++;
++				goto skb_skip;
+ 			}
+ 		} else {
+ 			rx_skb->dev = dev;
+-			rx_skb->protocol = eth_type_trans(rx_skb, dev);
++			//rx_skb->protocol = eth_type_trans(rx_skb, dev);
++			ei_local->stat.rx_packets++;
++			ei_local->stat.rx_bytes += length;
+ 		}
+ 
+-		/* rx checksum offload */
+-		if (rx_ring->rxd_info4.L4VLD)
+-			rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
+-		else
+-			rx_skb->ip_summed = CHECKSUM_NONE;
+-
  #if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
  		if (ra_sw_nat_hook_rx) {
  			if (IS_SPACE_AVAILABLE_HEAD(rx_skb)) {
-@@ -318,6 +338,7 @@ static int rt2880_eth_recv(struct net_device *dev,
+@@ -318,15 +336,23 @@ static int rt2880_eth_recv(struct net_device *dev,
  				FOE_TAG_PROTECT_TAIL(rx_skb) = TAG_PROTECT;
  			}
  		}
-+#endif
++#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
++		if (likely(IS_SPACE_AVAILABLE_HEAD(rx_skb))) {
++			*(uint32_t *)(FOE_INFO_START_ADDR_HEAD(rx_skb)) =
++				*(uint32_t *)&rx_ring->rxd_info4;
++			FOE_ALG_HEAD(rx_skb) = 1;
++			FOE_MAGIC_TAG_HEAD(rx_skb) = FOE_MAGIC_GE;
++			FOE_TAG_PROTECT_HEAD(rx_skb) = TAG_PROTECT;
++			if (unlikely(!ra_sw_nat_hook_rx))
++				goto skb_recv;
++			else if (!ra_sw_nat_hook_rx(rx_skb))
++				goto skb_skip;
++		} else
++
++skb_recv:
++			rx_skb->protocol = eth_type_trans(rx_skb, rx_skb->dev);
  #endif
  
- 	if (ei_local->features & FE_HW_VLAN_RX) {
-@@ -1879,6 +1900,13 @@ static int fe_int_enable(struct net_device *dev)
+-	if (ei_local->features & FE_HW_VLAN_RX) {
+-		if (rx_ring->rxd_info2.TAG)
+-			__vlan_hwaccel_put_tag(rx_skb,
+-					       htons(ETH_P_8021Q),
+-					       rx_ring->rxd_info3.VID);
+-	}
+-
+ /* ra_sw_nat_hook_rx return 1 --> continue
+  * ra_sw_nat_hook_rx return 0 --> FWD & without netif_rx
+  */
+@@ -354,18 +380,11 @@ static int rt2880_eth_recv(struct net_device *dev,
+ 						netif_rx(rx_skb);
+ 				}
+ 			}
+-#if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+ 		}
+ #endif
+ 
+-		if (rx_ring->rxd_info4.SP == 2) {
+-			p_ad->stat.rx_packets++;
+-			p_ad->stat.rx_bytes += length;
+-		} else {
+-			ei_local->stat.rx_packets++;
+-			ei_local->stat.rx_bytes += length;
+-		}
+-
++skb_skip:
+ 		/* init RX desc. */
+ 		fe_rx_desc_init(rx_ring, dma_addr);
+ 		ei_local->netrx_skb_data[0][rx_dma_owner_idx] = new_data;
+@@ -681,7 +700,8 @@ static void ei_func_register(struct END_DEVICE *ei_local)
+ 	}
+ 
+ 	/* HW NAT handling */
+-#if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE) || \
++    defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+ 	if (!(ei_local->features & FE_HW_NAT)) {
+ 		ra_sw_nat_hook_rx = NULL;
+ 		ra_sw_nat_hook_tx = NULL;
+@@ -1879,6 +1899,13 @@ static int fe_int_enable(struct net_device *dev)
  					 "gsw", NULL))
  			pr_err("fail to request irq\n");
  
@@ -3903,12 +3983,13 @@ index 78d18004..d9173600 100644
  		/* enable switch link change intr */
  		mii_mgr_write(31, 0x7008, 0x1f);
  	}
-@@ -2034,7 +2062,7 @@ static int fe_int_disable(struct net_device *dev)
+@@ -2034,7 +2061,8 @@ static int fe_int_disable(struct net_device *dev)
  		free_irq(ei_local->irq2, dev);
  	}
  
 -	if (ei_local->architecture & RAETH_ESW)
-+	if (ei_local->architecture & RAETH_ESW || ei_local->chip_name == MT7621_FE)
++	if (ei_local->architecture & RAETH_ESW ||
++	    ei_local->chip_name == MT7621_FE)
  		free_irq(ei_local->esw_irq, dev);
  
  	if (ei_local->features & (FE_RSS_4RING | FE_RSS_2RING))
@@ -3970,10 +4051,20 @@ index 78d18004..d9173600 100644
  		if (ei_local->qdma_pdev)
  			ei_local->qdma_pdev->dev.release
 diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.h b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.h
-index 81e27b72..2cc309d2 100644
+index 81e27b72..fa831fb0 100644
 --- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.h
 +++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.h
-@@ -357,6 +357,12 @@ static inline void ei_lro_flush_all(struct net_lro_mgr *lro_mgr)
+@@ -75,7 +75,8 @@
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ 
+-#if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE) || \
++    defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+ #include <net/ra_nat.h>
+ #endif
+ 
+@@ -357,6 +358,12 @@ static inline void ei_lro_flush_all(struct net_lro_mgr *lro_mgr)
  
  struct net_device_stats *ra_get_stats(struct net_device *dev);
  
@@ -3986,7 +4077,7 @@ index 81e27b72..2cc309d2 100644
  int ei_open(struct net_device *dev);
  int ei_close(struct net_device *dev);
  
-@@ -373,8 +379,8 @@ u32 mii_mgr_write_cl45(u32 port_num, u32 dev_addr, u32 reg_addr,
+@@ -373,8 +380,8 @@ u32 mii_mgr_write_cl45(u32 port_num, u32 dev_addr, u32 reg_addr,
  
  /* HNAT functions */
  #if defined(CONFIG_RA_NAT_NONE)
@@ -3998,7 +4089,7 @@ index 81e27b72..2cc309d2 100644
  extern int (*ra_sw_nat_hook_rx)(struct sk_buff *skb);
  extern int (*ra_sw_nat_hook_tx)(struct sk_buff *skb, int gmac_no);
 diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
-index 12514e2d..7c7c578a 100644
+index 12514e2d..28b4edd7 100644
 --- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
 +++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
 @@ -11,6 +11,9 @@
@@ -4006,55 +4097,51 @@ index 12514e2d..7c7c578a 100644
   */
  #include "raether.h"
 +#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+#include "mtk_hnat/nf_hnat_mtk.h"
++//#include "mtk_hnat/nf_hnat_mtk.h"
 +#endif
  
  int fe_pdma_wait_dma_idle(void)
  {
-@@ -235,6 +238,12 @@ int fe_fill_tx_desc(struct net_device *dev,
- 		else
- 			txd_info4_tmp.VLAN_TAG = 0;
- 	}
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+	if (HNAT_SKB_CB2(skb)->magic == 0x78681415) {
-+		//clr_from_extge(skb);
-+		txd_info4_tmp.FPORT = 4;
-+	}
-+#else
- #if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
- 	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb)) {
- 		if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE) {
-@@ -253,6 +262,7 @@ int fe_fill_tx_desc(struct net_device *dev,
+@@ -253,6 +256,18 @@ int fe_fill_tx_desc(struct net_device *dev,
  			}
  		}
  	}
-+#endif
++#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
++	//if (is_to_ppe(skb)) {
++	//	//clr_from_extge(skb);
++	//	txd_info4_tmp.FPORT = 4;
++	//}
++	if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE &&
++	    IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
++	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
++		/* PPE */
++		FOE_MAGIC_TAG_HEAD(skb) = 0;
++		txd_info4_tmp.FPORT = 4;
++	}
  #endif
  
  	txd_info2_tmp.LS0_bit = 1;
-@@ -497,6 +507,12 @@ int fe_fill_tx_desc_tso(struct net_device *dev,
- 		else
- 			tx_ring->txd_info4.VLAN_TAG = 0;
- 	}
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+	if (HNAT_SKB_CB2(skb)->magic == 0x78681415) {
-+		//clr_from_extge(skb);
-+		tx_ring->txd_info4.FPORT = 4;
-+	}
-+#else
- #if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
- 	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb)) {
- 		if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE) {
-@@ -515,6 +531,7 @@ int fe_fill_tx_desc_tso(struct net_device *dev,
+@@ -515,6 +530,18 @@ int fe_fill_tx_desc_tso(struct net_device *dev,
  			}
  		}
  	}
-+#endif
++#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
++	//if (is_to_ppe(skb)) {
++	//	//clr_from_extge(skb);
++	//	tx_ring->txd_info4.FPORT = 4;
++	//}
++	if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE &&
++	    IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
++	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
++		/* PPE */
++		FOE_MAGIC_TAG_HEAD(skb) = 0;
++		tx_ring->txd_info4.FPORT = 4;
++	}
  #endif
  	ei_local->skb_txd_num = 1;
  
 diff --git a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_qdma.c b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_qdma.c
-index a956441f..b731729e 100644
+index a956441f..771a4a6f 100644
 --- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_qdma.c
 +++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_qdma.c
 @@ -14,6 +14,9 @@
@@ -4062,7 +4149,7 @@ index a956441f..b731729e 100644
  #include "ra_ioctl.h"
  #include "raether_qdma.h"
 +#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+#include "mtk_hnat/nf_hnat_mtk.h"
++//#include "mtk_hnat/nf_hnat_mtk.h"
 +#endif
  
  /* skb->mark to queue mapping table */
@@ -4077,28 +4164,25 @@ index a956441f..b731729e 100644
  			cpu_ptr->txd_info4.QID = ((qidx & 0x30) >> 4);
  			cpu_ptr->txd_info3.QID = (qidx & 0x0f);
  		} else {
-@@ -665,6 +669,12 @@ int rt2880_qdma_eth_send(struct END_DEVICE *ei_local, struct net_device *dev,
- 			cpu_ptr->txd_info3.QID += 8;
- 		}
- 	}
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+	if (HNAT_SKB_CB2(skb)->magic == 0x78681415) {
-+		//clr_from_extge(skb);
-+		cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
-+	}
-+#else
- #if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
- 	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb)) {
- 		if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE) {
-@@ -681,6 +691,7 @@ int rt2880_qdma_eth_send(struct END_DEVICE *ei_local, struct net_device *dev,
+@@ -681,6 +685,17 @@ int rt2880_qdma_eth_send(struct END_DEVICE *ei_local, struct net_device *dev,
  			}
  		}
  	}
-+#endif
++#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
++	//if (is_to_ppe(skb)) {
++	//	//clr_from_extge(skb);
++	//	cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
++	//}
++	if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE &&
++	    IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
++	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
++		FOE_MAGIC_TAG_HEAD(skb) = 0;
++		cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
++	}
  #endif
  
  	/* dma_sync_single_for_device(NULL, virt_to_phys(skb->data), */
-@@ -803,7 +814,8 @@ int rt2880_qdma_eth_send_tso(struct END_DEVICE *ei_local,
+@@ -803,7 +818,8 @@ int rt2880_qdma_eth_send_tso(struct END_DEVICE *ei_local,
  	/* cpu_ptr->txd_info3.QID = ring_no; */
  	if ((ei_local->features & QDMA_QOS_MARK) && (skb->mark != 0)) {
  		if (skb->mark < 64) {
@@ -4108,24 +4192,21 @@ index a956441f..b731729e 100644
  			cpu_ptr->txd_info4.QID = ((qidx & 0x30) >> 4);
  			cpu_ptr->txd_info3.QID = (qidx & 0x0f);
  		} else {
-@@ -842,6 +854,12 @@ int rt2880_qdma_eth_send_tso(struct END_DEVICE *ei_local,
- 	/*debug multi tx queue */
- 	init_qid = cpu_ptr->txd_info3.QID;
- 	init_qid1 = cpu_ptr->txd_info4.QID;
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+	if (HNAT_SKB_CB2(skb)->magic == 0x78681415) {
-+		//clr_from_extge(skb);
-+		cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
-+	}
-+#else
- #if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
- 	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb)) {
- 		if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE) {
-@@ -858,6 +876,7 @@ int rt2880_qdma_eth_send_tso(struct END_DEVICE *ei_local,
+@@ -858,6 +874,17 @@ int rt2880_qdma_eth_send_tso(struct END_DEVICE *ei_local,
  			}
  		}
  	}
-+#endif
++#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
++	//if (is_to_ppe(skb)) {
++	//	//clr_from_extge(skb);
++	//	cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
++	//}
++	if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE &&
++	    IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
++	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
++		FOE_MAGIC_TAG_HEAD(skb) = 0;
++		cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
++	}
  #endif
  
  	cpu_ptr->txd_info3.SWC_bit = 1;
@@ -4148,163 +4229,184 @@ index b9373492..6bbeaca2 100644
  	if (ret != 0)
          printk("rtk_qos_priSel_set failed\n");
 diff --git a/trunk/linux-4.4.x/include/net/ra_nat.h b/trunk/linux-4.4.x/include/net/ra_nat.h
-index d9399d68..5ceb1692 100644
+index d9399d68..171d995e 100644
 --- a/trunk/linux-4.4.x/include/net/ra_nat.h
 +++ b/trunk/linux-4.4.x/include/net/ra_nat.h
-@@ -58,41 +58,6 @@
- #define hwnat_vlan_tx_tag_present(__skb)     ((__skb)->vlan_tci & VLAN_TAG_PRESENT)
- #define hwnat_vlan_tag_get(__skb)         ((__skb)->vlan_tci & ~VLAN_TAG_PRESENT)
+@@ -154,10 +154,12 @@ struct pdma_rx_desc_info4 {
+ #endif
+ 	uint32_t ALG:1;
+ 	uint16_t IF:8;
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ 	u8 WDMAID;
+ 	uint16_t RXID:2;
+ 	uint16_t WCID:8;
+ 	uint16_t BSSID:6;
++#endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ 	u16 SOURCE;
+ 	u16 DEST;
+@@ -176,11 +178,12 @@ struct head_rx_descinfo4 {
+ 	uint32_t ALG:1;
+ 	uint32_t IF:8;
+ 	u16 MAGIC_TAG_PROTECT;
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ 	u8 WDMAID;
+ 	uint16_t RXID:2;
+ 	uint16_t WCID:8;
+ 	uint16_t BSSID:6;
+-
++#endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ 	u16 SOURCE;
+ 	u16 DEST;
+@@ -200,10 +203,12 @@ struct cb_rx_desc_info4 {
+ 	uint32_t ALG:1;
+ 	uint32_t IF:8;
+ 	u16 MAGIC_TAG_PROTECT1;
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ 	u8 WDMAID;
+ 	uint16_t RXID:2;
+ 	uint16_t WCID:8;
+ 	uint16_t BSSID:6;
++#endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ 	u16 SOURCE;
+ 	u16 DEST;
+@@ -274,19 +279,19 @@ struct cb_rx_desc_info4 {
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->SPORT)
+ #define FOE_MAGIC_TAG(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->IF)
+-
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->RXID)
+ #define FOE_WC_ID(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->BSSID)
+-
++#endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ #define FOE_SOURCE(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->SOURCE)
+ #define FOE_DEST(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->DEST)
+ #endif
  
--#if defined(CONFIG_RA_NAT_HW)
--extern void hwnat_magic_tag_set_zero(struct sk_buff *skb);
--extern void hwnat_check_magic_tag(struct sk_buff *skb);
--extern void hwnat_set_headroom_zero(struct sk_buff *skb);
--extern void hwnat_set_tailroom_zero(struct sk_buff *skb);
--extern void hwnat_copy_headroom(u8 *data, struct sk_buff *skb);
--extern void hwnat_copy_tailroom(u8 *data, int size, struct sk_buff *skb);
--extern void hwnat_setup_dma_ops(struct device *dev, bool coherent);
--#else
--
--static inline void hwnat_magic_tag_set_zero(struct sk_buff *skb)
--{
--}
--
--static inline void hwnat_check_magic_tag(struct sk_buff *skb)
--{
--}
--
--static inline void hwnat_set_headroom_zero(struct sk_buff *skb)
--{
--}
--
--static inline void hwnat_set_tailroom_zero(struct sk_buff *skb)
--{
--}
--
--static inline void hwnat_copy_headroom(u8 *data, struct sk_buff *skb)
--{
--}
--
--static inline void hwnat_copy_tailroom(u8 *data, int size, struct sk_buff *skb)
--{
--}
--
--#endif
- enum foe_cpu_reason {
- 	TTL_0 = 0x02,		/* IPv4(IPv6) TTL(hop limit) = 0 */
- 	/* IPv4(IPv6) has option(extension) header */
-@@ -451,6 +416,14 @@ struct cb_rx_desc_info4 {
- 	((FOE_MAGIC_TAG_CB(skb) == FOE_MAGIC_PCI) || \
+-#define IS_SPACE_AVAILABLE_HEAD(skb)  \
++#define IS_SPACE_AVAILABLED_HEAD(skb)  \
+ 	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
+ #define IS_SPACE_AVAILABLE_HEAD(skb)  \
+ 	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
+@@ -317,6 +322,7 @@ struct cb_rx_desc_info4 {
+ #define FOE_MAGIC_TAG_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->IF)
+ 
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID_HEAD(skb)  \
+@@ -325,6 +331,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->BSSID)
++#endif
+ 
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ #define FOE_SOURCE_HEAD(skb)  \
+@@ -333,6 +340,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->DEST)
+ #endif
+ 
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID_HEAD(skb)  \
+@@ -341,6 +349,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->BSSID)
++#endif
+ 
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ #define FOE_SOURCE_HEAD(skb)  \
+@@ -348,7 +357,7 @@ struct cb_rx_desc_info4 {
+ #define FOE_DEST_HEAD(skb)  \
+ 	(((struct head_rx_descinfo4 *)((skb)->head))->DEST)
+ #endif
+-#define IS_SPACE_AVAILABLE_TAIL(skb)  \
++#define IS_SPACE_AVAILABLED_TAIL(skb)  \
+ 	(((skb_tailroom(skb) >= FOE_INFO_LEN) ? 1 : 0))
+ #define IS_SPACE_AVAILABLE_TAIL(skb)  \
+ 	(((skb_tailroom(skb) >= FOE_INFO_LEN) ? 1 : 0))
+@@ -388,6 +397,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->DEST)
+ #endif
+ 
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_TAIL(skb)  \
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->WDMAID)
+ #define FOE_RX_ID_TAIL(skb)  \
+@@ -396,6 +406,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->WCID)
+ #define FOE_BSS_ID_TAIL(skb)  \
+ 	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->BSSID)
++#endif
+ 
+ /* change the position of skb_CB if necessary */
+ #define CB_OFFSET		    40
+@@ -421,6 +432,8 @@ struct cb_rx_desc_info4 {
+ #define FOE_DEST_CB(skb)	(((struct cb_rx_desc_info4 *)((skb)->cb + CB_OFFSET))->DEST)
+ #endif
+ 
++
++#if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_CB(skb)  \
+ 	(((struct cb_rx_desc_info4 *)((skb)->head))->WDMAID)
+ #define FOE_RX_ID_CB(skb)  \
+@@ -429,6 +442,7 @@ struct cb_rx_desc_info4 {
+ 	(((struct cb_rx_desc_info4 *)((skb)->head))->WCID)
+ #define FOE_BSS_ID_CB(skb)  \
+ 	(((struct cb_rx_desc_info4 *)((skb)->head))->BSSID)
++#endif
+ 
+ #define IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb)  \
+ 	(FOE_TAG_PROTECT_HEAD(skb) == TAG_PROTECT)
+@@ -452,6 +466,7 @@ struct cb_rx_desc_info4 {
  	(FOE_MAGIC_TAG_CB(skb) == FOE_MAGIC_WLAN))
  
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+#define magic_tag_set_zero(skb) \
-+{ \
-+	if (IS_SPACE_AVAILABLE_HEAD(skb)) { \
-+		FOE_ALG_HEAD(skb) = 1; \
-+	} \
-+}
-+#else
  /* macros */
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
  #define magic_tag_set_zero(skb) \
  { \
-@@ -467,6 +440,7 @@ struct cb_rx_desc_info4 {
+ 	if ((FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PCI) || \
+@@ -467,13 +482,23 @@ struct cb_rx_desc_info4 {
  			FOE_MAGIC_TAG_TAIL(skb) = 0; \
  	} \
  }
++#else
++#define magic_tag_set_zero(skb) \
++{ \
++	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) && \
++	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) { \
++		FOE_ALG_HEAD(skb) = 1; \
++	} \
++}
 +#endif
  
  static inline void hwnat_set_l2tp_unhit(struct iphdr *iph, struct sk_buff *skb)
  {
-@@ -564,4 +538,73 @@ int hnat_ipi_init(void);
- int hnat_ipi_de_init(void);
- #endif
- 
-+#if defined(CONFIG_RA_NAT_HW)
-+extern void hwnat_magic_tag_set_zero(struct sk_buff *skb);
-+extern void hwnat_check_magic_tag(struct sk_buff *skb);
-+extern void hwnat_set_headroom_zero(struct sk_buff *skb);
-+extern void hwnat_set_tailroom_zero(struct sk_buff *skb);
-+extern void hwnat_copy_headroom(u8 *data, struct sk_buff *skb);
-+extern void hwnat_copy_tailroom(u8 *data, int size, struct sk_buff *skb);
-+extern void hwnat_setup_dma_ops(struct device *dev, bool coherent);
-+#else
-+
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+static inline void hwnat_magic_tag_set_zero(struct sk_buff *skb)
-+{
-+	magic_tag_set_zero(skb);
-+}
-+
-+static inline void hwnat_check_magic_tag(struct sk_buff *skb)
-+{
-+#if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
-+	/* only clear headeroom for TCP OR not L2TP packets */
-+	if ((iph->protocol == 0x6) || (ntohs(udp_hdr(skb)->dest) != 1701)) {
-+#endif
-+		if (IS_SPACE_AVAILABLE_HEAD(skb)) {
-+			FOE_MAGIC_TAG_HEAD(skb) = 0;
-+			FOE_AI_HEAD(skb) = UN_HIT;
-+		}
-+#if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
-+	}
-+#endif
-+}
-+
-+static inline void hwnat_set_headroom_zero(struct sk_buff *skb)
-+{
-+	if (skb->cloned != 1) {
-+		if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb)) {
-+			//if (IS_SPACE_AVAILABLE_HEAD(skb))
-+				memset(FOE_INFO_START_ADDR_HEAD(skb), 0,
-+				       FOE_INFO_LEN);
-+		}
-+	}
-+	//*((__u32 *)&(skb->cb[44])) = 0;
-+}
-+#else
-+static inline void hwnat_magic_tag_set_zero(struct sk_buff *skb)
-+{
-+}
-+
-+static inline void hwnat_check_magic_tag(struct sk_buff *skb)
-+{
-+}
-+
-+static inline void hwnat_set_headroom_zero(struct sk_buff *skb)
-+{
-+}
-+#endif
-+
-+static inline void hwnat_set_tailroom_zero(struct sk_buff *skb)
-+{
-+}
-+
-+static inline void hwnat_copy_headroom(u8 *data, struct sk_buff *skb)
-+{
-+}
-+
-+static inline void hwnat_copy_tailroom(u8 *data, int size, struct sk_buff *skb)
-+{
-+}
-+
-+#endif
- #endif
+ #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
+ 	/* only clear headeroom for TCP OR not L2TP packets */
+ 	if ((iph->protocol == 0x6) || (ntohs(udp_hdr(skb)->dest) != 1701)) {
+-		if (IS_SPACE_AVAILABLE_HEAD(skb)) {
++		if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) && \
++		    likely(IS_SPACE_AVAILABLED_HEAD(skb))) {
+ 			FOE_MAGIC_TAG(skb) = 0;
+ 			FOE_AI(skb) = UN_HIT;
+ 		}
 diff --git a/trunk/linux-4.4.x/net/core/skbuff.c b/trunk/linux-4.4.x/net/core/skbuff.c
-index 1c2408cf..28207dd6 100644
+index 1c2408cf..2e677780 100644
 --- a/trunk/linux-4.4.x/net/core/skbuff.c
 +++ b/trunk/linux-4.4.x/net/core/skbuff.c
-@@ -685,6 +685,9 @@ void __kfree_skb(struct sk_buff *skb)
- {
- 	hwnat_set_headroom_zero(skb);
- 	hwnat_set_tailroom_zero(skb);
-+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
-+	*((__u32 *)&(skb->cb[44])) = 0;
-+#endif
- 	skb_release_all(skb);
- 	kfree_skbmem(skb);
- }
-@@ -1154,6 +1157,14 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1154,6 +1154,14 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  		goto nodata;
  	size = SKB_WITH_OVERHEAD(ksize(data));
  
@@ -4319,7 +4421,7 @@ index 1c2408cf..28207dd6 100644
  	/* Copy only real data... and, alas, header. This should be
  	 * optimized for the cases when header is void.
  	 */
-@@ -1162,14 +1173,6 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1162,14 +1170,6 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	memcpy((struct skb_shared_info *)(data + size),
  	       skb_shinfo(skb),
  	       offsetof(struct skb_shared_info, frags[skb_shinfo(skb)->nr_frags]));
@@ -4334,6 +4436,132 @@ index 1c2408cf..28207dd6 100644
  	/*remove hwnat information to avoid skb reuse causing error binding*/
  	hwnat_set_headroom_zero(skb);
  	hwnat_set_tailroom_zero(skb);
+diff --git a/trunk/linux-4.4.x/net/ipv4/ip_output.c b/trunk/linux-4.4.x/net/ipv4/ip_output.c
+index 87c5c049..b2b21dcc 100644
+--- a/trunk/linux-4.4.x/net/ipv4/ip_output.c
++++ b/trunk/linux-4.4.x/net/ipv4/ip_output.c
+@@ -461,8 +461,11 @@ packet_routed:
+ 	skb->mark = sk->sk_mark;
+ 
+ 	/* hw_nat use*/
++#if defined (CONFIG_RA_HW_NAT_PPTP_L2TP)
+ 	hwnat_set_l2tp_unhit(iph, skb);
++#else
+ 	hwnat_check_magic_tag(skb);
++#endif
+ 
+ 	res = ip_local_out(net, sk, skb);
+ 	rcu_read_unlock();
+diff --git a/trunk/linux-4.4.x/net/nat/foe_hook/hook.c b/trunk/linux-4.4.x/net/nat/foe_hook/hook.c
+index 327021e8..89b2698d 100644
+--- a/trunk/linux-4.4.x/net/nat/foe_hook/hook.c
++++ b/trunk/linux-4.4.x/net/nat/foe_hook/hook.c
+@@ -11,11 +11,13 @@
+ #include <linux/skbuff.h>
+ #include <net/ra_nat.h>
+ 
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+ struct net_device	*dst_port[MAX_IF_NUM];
+ EXPORT_SYMBOL(dst_port);
+ 
+ struct foe_entry *ppe_virt_foe_base_tmp;
+ EXPORT_SYMBOL(ppe_virt_foe_base_tmp);
++#endif
+ 
+ int (*ra_sw_nat_hook_rx)(struct sk_buff *skb) = NULL;
+ EXPORT_SYMBOL(ra_sw_nat_hook_rx);
+@@ -29,6 +31,7 @@ EXPORT_SYMBOL(ppe_dev_unregister_hook);
+ 
+ void  hwnat_magic_tag_set_zero(struct sk_buff *skb)
+ {
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+ 	if ((FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PCI) ||
+ 	    (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_WLAN) ||
+ 	    (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_GE)) {
+@@ -41,11 +44,17 @@ void  hwnat_magic_tag_set_zero(struct sk_buff *skb)
+ 		if (IS_SPACE_AVAILABLE_TAIL(skb))
+ 			FOE_MAGIC_TAG_TAIL(skb) = 0;
+ 	}
++#else
++	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
++	    likely(IS_SPACE_AVAILABLE_HEAD(skb)))
++		FOE_ALG_HEAD(skb) = 1;
++#endif
+ }
+ EXPORT_SYMBOL(hwnat_magic_tag_set_zero);
+ 
+ void hwnat_check_magic_tag(struct sk_buff *skb)
+ {
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+ 	if (IS_SPACE_AVAILABLE_HEAD(skb)) {
+ 		FOE_MAGIC_TAG_HEAD(skb) = 0;
+ 		FOE_AI_HEAD(skb) = UN_HIT;
+@@ -54,11 +63,19 @@ void hwnat_check_magic_tag(struct sk_buff *skb)
+ 		FOE_MAGIC_TAG_TAIL(skb) = 0;
+ 		FOE_AI_TAIL(skb) = UN_HIT;
+ 	}
++#else
++	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
++	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
++		FOE_MAGIC_TAG_HEAD(skb) = 0;
++		FOE_AI_HEAD(skb) = UN_HIT;
++	}
++#endif
+ }
+ EXPORT_SYMBOL(hwnat_check_magic_tag);
+ 
+ void hwnat_set_headroom_zero(struct sk_buff *skb)
+ {
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+ 	if (skb->cloned != 1) {
+ 		if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) ||
+ 		    (FOE_MAGIC_TAG(skb) == FOE_MAGIC_PPE)) {
+@@ -67,11 +84,20 @@ void hwnat_set_headroom_zero(struct sk_buff *skb)
+ 				       FOE_INFO_LEN);
+ 		}
+ 	}
++#else
++	if (skb->cloned != 1) {
++		if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
++		    likely(IS_SPACE_AVAILABLE_HEAD(skb)))
++				memset(FOE_INFO_START_ADDR_HEAD(skb), 0,
++				       FOE_INFO_LEN);
++	}
++#endif
+ }
+ EXPORT_SYMBOL(hwnat_set_headroom_zero);
+ 
+ void hwnat_set_tailroom_zero(struct sk_buff *skb)
+ {
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+ 	if (skb->cloned != 1) {
+ 		if (IS_MAGIC_TAG_PROTECT_VALID_TAIL(skb) ||
+ 		    (FOE_MAGIC_TAG(skb) == FOE_MAGIC_PPE)) {
+@@ -80,19 +106,24 @@ void hwnat_set_tailroom_zero(struct sk_buff *skb)
+ 				       FOE_INFO_LEN);
+ 		}
+ 	}
++#endif
+ }
+ EXPORT_SYMBOL(hwnat_set_tailroom_zero);
+ 
+ void hwnat_copy_headroom(u8 *data, struct sk_buff *skb)
+ {
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+ 	memcpy(data, skb->head, FOE_INFO_LEN);
++#endif
+ }
+ EXPORT_SYMBOL(hwnat_copy_headroom);
+ 
+ void hwnat_copy_tailroom(u8 *data, int size, struct sk_buff *skb)
+ {
++#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+ 	memcpy((data + size - FOE_INFO_LEN), (skb_end_pointer(skb) - FOE_INFO_LEN),
+ 	       FOE_INFO_LEN);
++#endif
+ }
+ EXPORT_SYMBOL(hwnat_copy_tailroom);
+ 
 diff --git a/trunk/linux-4.4.x/net/nat/hw_nat/foe_fdb.c b/trunk/linux-4.4.x/net/nat/hw_nat/foe_fdb.c
 index 4dcf6e17..68eefd7d 100644
 --- a/trunk/linux-4.4.x/net/nat/hw_nat/foe_fdb.c
@@ -4482,147 +4710,134 @@ index fc750e69..1c9ec2c5 100644
  				if (web_sfq_enable == 1 && (skb->mark == 2))
  					foe_mcast_entry_qid(ppe_parse_result.vlan1,
 diff --git a/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h b/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h
-index 6e3ba731..0a224214 100644
+index 6e3ba731..0e5d25a9 100644
 --- a/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h
 +++ b/trunk/linux-4.4.x/net/nat/hw_nat/ra_nat.h
-@@ -189,11 +189,17 @@ defined(CONFIG_MT7610_AP_MESH)
- 	MAX_IF_NUM
- };
- 
-+#define MAX_IF_NUM 64
- struct pdma_rx_desc_info4 {
+@@ -193,7 +193,12 @@ struct pdma_rx_desc_info4 {
  	u16 MAGIC_TAG_PROTECT;
  	uint32_t foe_entry_num:14;
  	uint32_t CRSN:5;
-+#if defined(CONFIG_MACH_LEOPARD)
+-	uint32_t SPORT:4;
 +	uint32_t SPORT:3;
++#if defined(CONFIG_MACH_LEOPARD)
 +	uint32_t foe_entry_num_32:1;
 +#else
- 	uint32_t SPORT:4;
++	uint32_t rsv:1;
 +#endif
  	uint32_t ALG:1;
  	uint16_t IF:8;
  #if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
-@@ -211,7 +217,12 @@ struct pdma_rx_desc_info4 {
+@@ -211,7 +216,12 @@ struct pdma_rx_desc_info4 {
  struct head_rx_descinfo4 {
  	uint32_t foe_entry_num:14;
  	uint32_t CRSN:5;
-+#if defined(CONFIG_MACH_LEOPARD)
+-	uint32_t SPORT:4;
 +	uint32_t SPORT:3;
++#if defined(CONFIG_MACH_LEOPARD)
 +	uint32_t foe_entry_num_32:1;
 +#else
- 	uint32_t SPORT:4;
++	uint32_t rsv:1;
 +#endif
  	uint32_t ALG:1;
  	uint32_t IF:8;
  	u16 MAGIC_TAG_PROTECT;
-@@ -231,7 +242,12 @@ struct cb_rx_desc_info4 {
+@@ -231,7 +241,12 @@ struct cb_rx_desc_info4 {
  	u16 MAGIC_TAG_PROTECT0;
  	uint32_t foe_entry_num:14;
  	uint32_t CRSN:5;
-+#if defined(CONFIG_MACH_LEOPARD)
+-	uint32_t SPORT:4;
 +	uint32_t SPORT:3;
++#if defined(CONFIG_MACH_LEOPARD)
 +	uint32_t foe_entry_num_32:1;
 +#else
- 	uint32_t SPORT:4;
++	uint32_t rsv:1;
 +#endif
  	uint32_t ALG:1;
  	uint32_t IF:8;
  	u16 MAGIC_TAG_PROTECT1;
-@@ -288,8 +304,17 @@ struct cb_rx_desc_info4 {
+@@ -288,8 +303,21 @@ struct cb_rx_desc_info4 {
  
  #define FOE_TAG_PROTECT(skb)  \
  	(((struct head_rx_descinfo4 *)((skb)->head))->MAGIC_TAG_PROTECT)
-+#if defined(CONFIG_MACH_LEOPARD)
++
 +#define FOE_ENTRY_NUM_LSB(skb)  \
 +	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num)
++
++#if defined(CONFIG_MACH_LEOPARD)
 +#define FOE_ENTRY_NUM_MSB(skb)  \
 +	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num_32)
 +#define FOE_ENTRY_NUM(skb)  \
 +	(((FOE_ENTRY_NUM_MSB(skb) & 0x1) << 14) | FOE_ENTRY_NUM_LSB(skb))
 +#else
++#define FOE_ENTRY_NUM_MSB(skb)  \
++	(((struct head_rx_descinfo4 *)((skb)->head))->rsv)
  #define FOE_ENTRY_NUM(skb)  \
  	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num)
 +#endif
  #define FOE_ALG(skb)  \
  	(((struct head_rx_descinfo4 *)((skb)->head))->ALG)
  #define FOE_AI(skb)  \
-@@ -310,7 +335,7 @@ struct cb_rx_desc_info4 {
- #define FOE_DEST(skb)	(((struct head_rx_descinfo4 *)((skb)->head))->DEST)
- #endif
- 
--#define IS_SPACE_AVAILABLED_HEAD(skb)  \
-+#define IS_SPACE_AVAILABLE_HEAD(skb)  \
- 	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
- #define IS_SPACE_AVAILABLE_HEAD(skb)  \
- 	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
-@@ -318,8 +343,17 @@ struct cb_rx_desc_info4 {
+@@ -318,8 +346,20 @@ struct cb_rx_desc_info4 {
  
  #define FOE_TAG_PROTECT_HEAD(skb)  \
  	(((struct head_rx_descinfo4 *)((skb)->head))->MAGIC_TAG_PROTECT)
-+#if defined(CONFIG_MACH_LEOPARD)
 +#define FOE_ENTRY_NUM_LSB_HEAD(skb)  \
 +	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num)
++#if defined(CONFIG_MACH_LEOPARD)
 +#define FOE_ENTRY_NUM_MSB_HEAD(skb)  \
 +	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num_32)
 +#define FOE_ENTRY_NUM_HEAD(skb)  \
 +	(((FOE_ENTRY_NUM_MSB_HEAD(skb) & 0x1) << 14) | FOE_ENTRY_NUM_LSB_HEAD(skb))
 +#else
++#define FOE_ENTRY_NUM_MSB_HEAD(skb)  \
++	(((struct head_rx_descinfo4 *)((skb)->head))->rsv)
  #define FOE_ENTRY_NUM_HEAD(skb)  \
  	(((struct head_rx_descinfo4 *)((skb)->head))->foe_entry_num)
 +#endif
++
  #define FOE_ALG_HEAD(skb)  \
  	(((struct head_rx_descinfo4 *)((skb)->head))->ALG)
  #define FOE_AI_HEAD(skb)  \
-@@ -364,7 +398,7 @@ struct cb_rx_desc_info4 {
- #define FOE_DEST_HEAD(skb)  \
- 	(((struct head_rx_descinfo4 *)((skb)->head))->DEST)
- #endif
--#define IS_SPACE_AVAILABLED_TAIL(skb)  \
-+#define IS_SPACE_AVAILABLE_TAIL(skb)  \
- 	(((skb_tailroom(skb) >= FOE_INFO_LEN) ? 1 : 0))
- #define IS_SPACE_AVAILABLE_TAIL(skb)  \
- 	(((skb_tailroom(skb) >= FOE_INFO_LEN) ? 1 : 0))
-@@ -373,8 +407,17 @@ struct cb_rx_desc_info4 {
+@@ -373,8 +413,21 @@ struct cb_rx_desc_info4 {
  
  #define FOE_TAG_PROTECT_TAIL(skb)  \
  	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->MAGIC_TAG_PROTECT)
-+#if defined(CONFIG_MACH_LEOPARD)
 +#define FOE_ENTRY_NUM_LSB_TAIL(skb)  \
 +	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->foe_entry_num)
++
++#if defined(CONFIG_MACH_LEOPARD)
 +#define FOE_ENTRY_NUM_MSB_TAIL(skb)  \
 +	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->foe_entry_num_32)
 +#define FOE_ENTRY_NUM_TAIL(skb)  \
 +	(((FOE_ENTRY_NUM_MSB_TAIL(skb) & 0x1) << 14) | FOE_ENTRY_NUM_LSB_TAIL(skb))
 +#else
++#define FOE_ENTRY_NUM_MSB_TAIL(skb)  \
++	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->rsv)
  #define FOE_ENTRY_NUM_TAIL(skb)  \
  	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->foe_entry_num)
 +#endif
++
  #define FOE_ALG_TAIL(skb)  \
  	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->ALG)
  #define FOE_AI_TAIL(skb)  \
-@@ -481,7 +524,7 @@ static inline void hwnat_set_l2tp_unhit(struct iphdr *iph, struct sk_buff *skb)
- #if defined(CONFIG_RA_HW_NAT_PPTP_L2TP)
- 	/* only clear headeroom for TCP OR not L2TP packets */
- 	if ((iph->protocol == 0x6) || (ntohs(udp_hdr(skb)->dest) != 1701)) {
--		if (IS_SPACE_AVAILABLED_HEAD(skb)) {
-+		if (IS_SPACE_AVAILABLE_HEAD(skb)) {
- 			FOE_MAGIC_TAG(skb) = 0;
- 			FOE_AI(skb) = UN_HIT;
- 		}
-diff --git a/trunk/linux-4.4.x/net/netfilter/nf_conntrack_proto_tcp.c b/trunk/linux-4.4.x/net/netfilter/nf_conntrack_proto_tcp.c
-index ad11afc6..763540fd 100644
---- a/trunk/linux-4.4.x/net/netfilter/nf_conntrack_proto_tcp.c
-+++ b/trunk/linux-4.4.x/net/netfilter/nf_conntrack_proto_tcp.c
-@@ -682,7 +682,7 @@ static bool tcp_in_window(const struct nf_conn *ct,
- 		 (in_recv_win ? 1 : 0),
- 		 before(sack, receiver->td_end + 1),
- 		 after(sack, receiver->td_end - MAXACKWINDOW(sender) - 1));
--#if !defined(CONFIG_RA_NAT_HW)
-+#if !(defined(CONFIG_RA_NAT_HW) || defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE))
- 	if (before(seq, sender->td_maxend + 1) &&
- 	    in_recv_win &&
- 	    before(sack, receiver->td_end + 1) &&
+@@ -393,13 +446,13 @@ struct cb_rx_desc_info4 {
+ 
+ #if defined(CONFIG_ARCH_MT7622_WIFI_HW_NAT)
+ #define FOE_WDMA_ID_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((skb)->head))->WDMAID)
++	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->WDMAID)
+ #define FOE_RX_ID_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((skb)->head))->RXID)
++	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->RXID)
+ #define FOE_WC_ID_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((skb)->head))->WCID)
++	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->WCID)
+ #define FOE_BSS_ID_TAIL(skb)  \
+-	(((struct pdma_rx_desc_info4 *)((skb)->head))->BSSID)
++	(((struct pdma_rx_desc_info4 *)((long)((skb_end_pointer(skb)) - FOE_INFO_LEN)))->BSSID)
+ #endif
+ 
+ /* change the position of skb_CB if necessary */
 -- 
 2.32.0.windows.2
 
