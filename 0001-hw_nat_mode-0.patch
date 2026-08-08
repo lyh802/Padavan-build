@@ -1,0 +1,25 @@
+From c0900fd81cbb03a5b1d3101818b3395bf73dc81e Mon Sep 17 00:00:00 2001
+From: lyh802 <lyh802@126.com>
+Date: Sat, 8 Aug 2026 13:11:48 +0800
+Subject: [PATCH] hw_nat_mode=0
+
+---
+ trunk/user/shared/defaults.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/trunk/user/shared/defaults.c b/trunk/user/shared/defaults.c
+index 51d01dc8..cd95c9a7 100644
+--- a/trunk/user/shared/defaults.c
++++ b/trunk/user/shared/defaults.c
+@@ -1048,7 +1048,7 @@ struct nvram_pair router_defaults[] = {
+ 	{ "ether_flow_lan7", "0" },
+ #endif
+ #endif
+-	{ "hw_nat_mode", "1" },
++	{ "hw_nat_mode", "0" },
+ 	{ "sw_nat_mode", "0" },
+ #if defined(USE_SFE)
+ 	{ "sfe_enable", "2" },
+-- 
+2.32.0.windows.2
+
